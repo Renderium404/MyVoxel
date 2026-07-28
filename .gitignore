@@ -1,0 +1,47 @@
+# CMake 构建目录
+/build/
+/out/
+
+# CMake 生成文件
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.cmake.user
+
+# Visual Studio 生成文件
+.vs/
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.user
+*.suo
+
+# 编译产物
+*.obj
+*.o
+*.lib
+*.exp
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.tlog
+*.lastbuildstate
+*.idb
+
+# Qt 自动生成内容
+*_autogen/
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+
+# 系统和临时文件
+Thumbs.db
+.DS_Store
+*.tmp
+*.log
+*.bat
+.vscode/
