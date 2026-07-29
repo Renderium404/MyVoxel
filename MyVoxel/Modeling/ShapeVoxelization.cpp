@@ -15,6 +15,21 @@ namespace
 {
 
 const double CellCenterScale = 0.5; // 体素中心位于包围盒两个端点的中间位置。
+const unsigned int MaskLeafCoveredLevelCount = 2; // 一个64位掩码叶块固定覆盖当前节点下面两级，共4×4×4个最高层体素。
+
+// 检查当前层是否适合直接使用覆盖下面两级的掩码叶块。
+bool shouldUseMaskLeaf(const MyVoxel::VoxelCellAddress& address, MyVoxel::VoxelLevel maximumLevel)
+{
+    const unsigned int currentLevelValue = static_cast<unsigned int>(address.level);
+    const unsigned int maximumLevelValue = static_cast<unsigned int>(maximumLevel);
+
+    if (address.level == MyVoxel::BaseVoxelLevel || currentLevelValue > maximumLevelValue)
+    {
+        return false;
+    }
+
+    return maximumLevelValue - currentLevelValue == MaskLeafCoveredLevelCount;
+}
 
 // 执行无符号64位饱和乘法，溢出时返回最大值。
 std::uint64_t saturatedMultiply(std::uint64_t first, std::uint64_t second)
@@ -91,10 +106,23 @@ MyVoxel::VoxelState voxelizeCell(MyVoxel::VoxelTreeEditor editor,
 
     MYVOXEL_ASSERT_MESSAGE(address.level < grid.maximumLevel(), "Shape voxelization address level exceeds the VoxelGrid maximum level.");
 
-    if (editor.split())
+    bool subdivisionCreated = false;
+
+    if (shouldUseMaskLeaf(address, grid.maximumLevel()))
+    {
+        subdivisionCreated = editor.makeMaskLeaf();
+    }
+    else
+    {
+        subdivisionCreated = editor.split();
+    }
+
+    if (subdivisionCreated)
     {
         ++statistics.splitCount;
     }
+
+    MYVOXEL_ASSERT_MESSAGE(editor.canAccessChildren(), "Shape voxelization failed to create an accessible child structure.");
 
     for (std::size_t cornerIndex = 0; cornerIndex < MyVoxel::VoxelCornerCount; ++cornerIndex)
     {
@@ -115,6 +143,8 @@ MyVoxel::VoxelState voxelizeCell(MyVoxel::VoxelTreeEditor editor,
 
     return mergedState;
 }
+
+
 
 // 执行连续Shape到VoxelShape的统一局部体素化。
 MyVoxel::VoxelShape voxelizeShapeImpl(const MyVoxel::Geometry::Shape& shape,
@@ -195,6 +225,11 @@ MyVoxel::VoxelShape voxelizeInstanceImpl(const MyVoxel::Geometry::ShapeInstance&
     result.setTransform(instance.localToWorld());
     return result;
 }
+
+
+
+
+
 
 }
 

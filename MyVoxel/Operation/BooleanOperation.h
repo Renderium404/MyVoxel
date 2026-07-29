@@ -90,6 +90,14 @@ struct BooleanOperationStatistics
     std::uint64_t accessorPathReuseCount = 0; // 点查询复用至少一级路径的次数。
     std::uint64_t accessorReusedPathLevelCount = 0; // 点查询累计复用的路径层级数量。
     std::uint64_t accessorNodeVisitCount = 0; // 点访问器实际检查节点状态的次数。
+
+    /// 对齐体素掩码路径统计
+
+    std::uint64_t alignedMaskCutCount = 0; // 实际选择完全对齐体素掩码快速路径的次数。
+    std::uint64_t alignedMaskRootCandidateCount = 0; // 掩码路径遍历的工具根节点数量。
+    std::uint64_t alignedMaskIntersectingRootCount = 0; // 掩码预检确认存在材料交集的根节点数量。
+    std::uint64_t alignedMaskOperationCount = 0; // 直接执行64位材料掩码差集的次数。
+    std::uint64_t alignedMaskChangedCount = 0; // 64位材料掩码差集实际改变对象的次数。
 };
 
 #endif

@@ -19,7 +19,7 @@
 #include "MyVoxel/Core/Tree/VoxelForestConstAccessor.h"
 #include "MyVoxel/Core/Tree/VoxelTreeEditor.h"
 #include "MyVoxel/Operation/BooleanOperation.h"
-
+#include "VoxelMaskForestCutAlgorithm.h"
 namespace
 {
 
@@ -197,7 +197,40 @@ MyVoxel::Operation::Algorithm::CutCellResult cutMaterialCellWithVoxelToolStatist
 
     return MyVoxel::Operation::Algorithm::CutCellResult(mergedState, changed);
 }
+// 将对齐体素森林掩码切削统计写入公共布尔运算统计。
+void assignAlignedMaskStatistics(
+    MyVoxel::Operation::BooleanOperationStatistics& target,
+    const MyVoxel::Operation::Algorithm::VoxelMaskForestCutStatistics& source)
+{
+    const MyVoxel::Operation::Algorithm::VoxelMaskCutStatistics& treeStatistics = source.treeStatistics;
 
+    target.alignedMaskCutCount = 1;
+    target.alignedMaskRootCandidateCount = source.rootCandidateCount;
+    target.alignedMaskIntersectingRootCount = source.intersectingRootCount;
+    target.alignedMaskOperationCount = treeStatistics.maskOperationCount;
+    target.alignedMaskChangedCount = treeStatistics.maskChangedCount;
+
+    target.inputMaterialCellCount = source.existingObjectRootCount;
+    target.visitedCellCount = treeStatistics.visitedCellCount;
+    target.emptySkippedCellCount = treeStatistics.emptyObjectSkipCount + treeStatistics.emptyToolSkipCount;
+
+    target.outsideCellCount = treeStatistics.emptyToolSkipCount;
+    target.insideCellCount = treeStatistics.materialToolRemoveCount;
+    target.intersectingCellCount = treeStatistics.recursiveNodeCount + treeStatistics.maskOperationCount;
+    target.classifiedCellCount = target.outsideCellCount + target.insideCellCount + target.intersectingCellCount;
+
+    target.removedBranchCount =
+        treeStatistics.materialToolRemoveCount +
+        source.directRootEraseCount;
+
+    target.mergeAttemptCount = treeStatistics.mergeAttemptCount;
+    target.mergeSuccessCount = treeStatistics.mergeSuccessCount;
+
+    target.preparedRootTreeCount = source.detachedRootCount;
+    target.removedRootTreeCount =
+        source.directRootEraseCount +
+        source.emptiedRootEraseCount;
+}
 }
 
 namespace MyVoxel
@@ -222,7 +255,73 @@ VoxelShape cutWithVoxelToolStatistics(const VoxelShape& object, const VoxelShape
     assert(tool.grid().isValid());
     assert(object.transform().isRigidTransform());
     assert(tool.transform().isRigidTransform());
+    if (object.isEmpty() || tool.isEmpty())
+    {
+        statistics.totalMilliseconds = elapsedMilliseconds(totalStart, Clock::now());
+        return object;
+    }
 
+    const Clock::time_point compatibilityStart = Clock::now();
+    const bool useAlignedMaskCut = canUseAlignedVoxelMaskCut(object, tool);
+    const Clock::time_point compatibilityEnd = Clock::now();
+
+    statistics.toolIndexMilliseconds =
+        elapsedMilliseconds(
+            compatibilityStart,
+            compatibilityEnd);
+
+    if (useAlignedMaskCut)
+    {
+        VoxelShape result = object;
+
+        const Clock::time_point detachStart = Clock::now();
+        VoxelForest& resultForest = result.editForest();
+        const Clock::time_point detachEnd = Clock::now();
+
+        VoxelMaskForestCutStatistics maskStatistics;
+
+        const Clock::time_point cuttingStart = Clock::now();
+
+        const bool changed =
+            cutAlignedVoxelForest(
+                resultForest,
+                tool.forest(),
+                changes,
+                &maskStatistics);
+
+        const Clock::time_point cuttingEnd = Clock::now();
+
+        statistics.detachMilliseconds =
+            elapsedMilliseconds(
+                detachStart,
+                detachEnd);
+
+        statistics.cuttingMilliseconds =
+            elapsedMilliseconds(
+                cuttingStart,
+                cuttingEnd);
+
+        assignAlignedMaskStatistics(
+            statistics,
+            maskStatistics);
+
+        statistics.totalMilliseconds =
+            elapsedMilliseconds(
+                totalStart,
+                Clock::now());
+
+        assert(statistics.classifiedCellCount ==
+               statistics.outsideCellCount +
+               statistics.insideCellCount +
+               statistics.intersectingCellCount);
+
+        assert(statistics.pointQueryCount == statistics.centerSampleCount);
+        assert(statistics.pointQueryCount ==
+               statistics.accessorRootCacheHitCount +
+               statistics.accessorRootCacheMissCount);
+
+        return changed ? result : object;
+    }
     const Clock::time_point toolIndexStart = Clock::now();
     const VoxelForestQuery toolQuery(tool.forest(), tool.grid());
     VoxelForestConstAccessor toolAccessor(tool.forest());

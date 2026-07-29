@@ -1,55 +1,51 @@
-#ifndef MYVOXEL_CORE_TREE_VOXELTREECONSTCURSOR_H
-#define MYVOXEL_CORE_TREE_VOXELTREECONSTCURSOR_H
+#ifndef MYVOXEL_VOXELTREECONSTCURSOR_H
+#define MYVOXEL_VOXELTREECONSTCURSOR_H
 
-#include "MyVoxel/Core/VoxelAddress.h"
 #include "VoxelForest.h"
-#include "VoxelTree.h"
+#include "VoxelPackedTreeConstCursor.h"
 
 namespace MyVoxel
 {
 
-// 在只读体素树中直接访问当前节点及其逻辑子节点。
+// 使用生产接口只读访问Packed体素树节点。
 class VoxelTreeConstCursor
 {
 public:
-    // 使用森林中的指定体素地址创建只读游标，不存在实际节点时表示对应的虚拟叶节点。
+    // 使用森林中已经存在的节点创建只读游标。
     VoxelTreeConstCursor(const VoxelForest& forest, const VoxelCellAddress& address);
-    // 使用指定体素树的根节点创建只读游标。
-    explicit VoxelTreeConstCursor(const VoxelTree& tree);
 
-    /// 节点状态
-    // 返回当前节点状态。
-    VoxelState state() const;
-    // 判断当前游标是否表示实际创建的节点。
-    bool hasActualNode() const;
-    // 判断当前游标是否表示叶节点向下延伸形成的虚拟节点。
-    bool isVirtual() const;
-    // 判断当前节点是否为空叶节点。
-    bool isEmpty() const;
-    // 判断当前节点是否为材料叶节点。
-    bool isMaterial() const;
-    // 判断当前节点是否已经细分。
-    bool isSubdivided() const;
-    // 判断当前节点是否为叶节点。
-    bool isLeaf() const;
+/// 节点状态
 
-    /// 子节点访问
-    // 返回指定角点对应的子节点游标，叶节点的子游标继承当前叶节点状态。
-    VoxelTreeConstCursor child(VoxelCorner corner) const;
+// 返回当前节点状态。
+VoxelState state() const;
 
-private:
-    // 使用已经定位的体素树和实际节点创建游标。
-    VoxelTreeConstCursor(const VoxelTree* tree, const VoxelNode* node);
-    // 使用指定叶节点状态创建虚拟游标。
-    VoxelTreeConstCursor(const VoxelTree* tree, VoxelState virtualState);
+// 检查当前节点是否直接对应一个掩码叶块。
+bool isMaskLeaf() const;
+
+// 检查当前节点是否允许继续访问逻辑子节点。
+bool canAccessChildren() const;
+
+/// 子节点访问
+
+// 返回指定角点对应的直接子节点游标。
+VoxelTreeConstCursor child(VoxelCorner corner) const;
+
+/// 掩码叶块访问
+
+// 返回当前节点直接对应的只读掩码叶块。
+const VoxelLeafBlock& maskLeaf() const;
+
 
 private:
-    const VoxelTree* m_tree; // 当前实际节点所属的只读体素树，森林中不存在根树时为空。
-    const VoxelNode* m_node; // 当前实际节点，虚拟节点时为空。
-    VoxelState m_virtualState; // 当前虚拟节点继承的叶节点状态。
-    bool m_virtual; // 当前游标是否表示虚拟节点。
+    // 使用已经定位的Packed游标创建生产子节点游标。
+    explicit VoxelTreeConstCursor(const VoxelPackedTreeConstCursor& cursor);
+
+    // 返回森林中指定地址对应的Packed游标。
+    static VoxelPackedTreeConstCursor createCursor(const VoxelForest& forest, const VoxelCellAddress& address);
+
+    VoxelPackedTreeConstCursor m_cursor; // 当前实际读取节点状态的Packed游标。
 };
 
 }
 
-#endif // MYVOXEL_CORE_TREE_VOXELTREECONSTCURSOR_H
+#endif // MYVOXEL_VOXELTREECONSTCURSOR_H

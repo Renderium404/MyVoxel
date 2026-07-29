@@ -5,7 +5,7 @@
 #include <cstddef>
 #include <limits>
 #include <vector>
-
+#include "VoxelMaskForestCutAlgorithm.h"
 #include "BooleanAlgorithmCommon.h"
 #include "MyMath/Matrix4.h"
 #include "MyMath/Vector3.h"
@@ -182,6 +182,11 @@ VoxelShape cutWithVoxelTool(const VoxelShape& object, const VoxelShape& tool, Vo
     if (object.isEmpty() || tool.isEmpty())
     {
         return object;
+    }
+
+    if (canUseAlignedVoxelMaskCut(object, tool))
+    {
+        return cutAlignedVoxelShapes(object, tool, changes);
     }
 
     const std::vector<VoxelCellAddress> materialCells = collectMaterialCells(object);

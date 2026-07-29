@@ -12,6 +12,11 @@ namespace Operation
 void BooleanOperationStatistics::reset()
 {
     *this = BooleanOperationStatistics();
+    alignedMaskCutCount = 0;
+    alignedMaskRootCandidateCount = 0;
+    alignedMaskIntersectingRootCount = 0;
+    alignedMaskOperationCount = 0;
+    alignedMaskChangedCount = 0;
 }
 
 void BooleanOperationStatistics::accumulate(const BooleanOperationStatistics& other)
@@ -62,6 +67,15 @@ void BooleanOperationStatistics::accumulate(const BooleanOperationStatistics& ot
     accessorPathReuseCount += other.accessorPathReuseCount;
     accessorReusedPathLevelCount += other.accessorReusedPathLevelCount;
     accessorNodeVisitCount += other.accessorNodeVisitCount;
+
+    alignedMaskCutCount += other.alignedMaskCutCount;
+    alignedMaskRootCandidateCount += other.alignedMaskRootCandidateCount;
+    alignedMaskIntersectingRootCount += other.alignedMaskIntersectingRootCount;
+    alignedMaskOperationCount += other.alignedMaskOperationCount;
+    alignedMaskChangedCount += other.alignedMaskChangedCount;
+
+
+
 }
 
 }
