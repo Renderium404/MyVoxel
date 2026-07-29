@@ -36,7 +36,7 @@ bool testNodeBlockLayout()
     passed = passed && block.childMask == 0;
     passed = passed && block.leafMask == 0;
     passed = passed && block.userData == 0;
-    passed = passed && block.firstChildIndex == MyVoxel::InvalidVoxelNodeIndex;
+    passed = passed && block.firstChildIndex == MyVoxel::InvalidVoxelIndex;
     passed = passed && block.isValid();
 
     for (int cornerIndex = 0; cornerIndex < MyVoxel::VoxelCornerCount; ++cornerIndex)
@@ -64,7 +64,7 @@ bool testNodeBlockLayout()
 bool testAlignedContiguousAllocation()
 {
     MyVoxel::VoxelBlockPool pool;
-    std::vector<MyVoxel::VoxelNodeIndex> firstChildIndexes;
+    std::vector<MyVoxel::VoxelIndex> firstChildIndexes;
 
     const std::size_t allocationCount = static_cast<std::size_t>(MyVoxel::VoxelBlockPool::GroupsPerChunk) + 1; // 额外分配一组以验证跨Chunk扩容。
 
@@ -72,7 +72,7 @@ bool testAlignedContiguousAllocation()
 
     for (std::size_t allocationIndex = 0; allocationIndex < allocationCount; ++allocationIndex)
     {
-        const MyVoxel::VoxelNodeIndex firstChildIndex = pool.allocateChildren();
+        const MyVoxel::VoxelIndex firstChildIndex = pool.allocateChildren();
 
         if ((firstChildIndex % MyVoxel::VoxelBlockPool::ChildrenPerGroup) != 0)
         {
@@ -86,7 +86,7 @@ bool testAlignedContiguousAllocation()
 
         MyVoxel::VoxelNodeBlock* firstNode = &pool.node(firstChildIndex);
 
-        for (MyVoxel::VoxelNodeIndex childOffset = 0; childOffset < MyVoxel::VoxelBlockPool::ChildrenPerGroup; ++childOffset)
+        for (MyVoxel::VoxelIndex childOffset = 0; childOffset < MyVoxel::VoxelBlockPool::ChildrenPerGroup; ++childOffset)
         {
             if (&pool.node(firstChildIndex + childOffset) != firstNode + childOffset)
             {
@@ -115,14 +115,14 @@ bool testGroupReuse()
 {
     MyVoxel::VoxelBlockPool pool;
 
-    const MyVoxel::VoxelNodeIndex firstIndex = pool.allocateChildren();
-    const MyVoxel::VoxelNodeIndex secondIndex = pool.allocateChildren();
+    const MyVoxel::VoxelIndex firstIndex = pool.allocateChildren();
+    const MyVoxel::VoxelIndex secondIndex = pool.allocateChildren();
 
     pool.node(firstIndex).leafMask = 0xFF;
     pool.node(firstIndex).userData = 65535;
     pool.releaseUnusedChildren(firstIndex);
 
-    const MyVoxel::VoxelNodeIndex reusedIndex = pool.allocateChildren();
+    const MyVoxel::VoxelIndex reusedIndex = pool.allocateChildren();
     const MyVoxel::VoxelNodeBlock& reusedNode = pool.node(reusedIndex);
 
     return reusedIndex == firstIndex &&
@@ -130,7 +130,7 @@ bool testGroupReuse()
            reusedNode.childMask == 0 &&
            reusedNode.leafMask == 0 &&
            reusedNode.userData == 0 &&
-           reusedNode.firstChildIndex == MyVoxel::InvalidVoxelNodeIndex &&
+           reusedNode.firstChildIndex == MyVoxel::InvalidVoxelIndex &&
            reusedNode.isValid();
 }
 
@@ -139,9 +139,9 @@ bool testDescendantRelease()
 {
     MyVoxel::VoxelBlockPool pool;
 
-    const MyVoxel::VoxelNodeIndex rootChildren = pool.allocateChildren();
-    const MyVoxel::VoxelNodeIndex level1Children = pool.allocateChildren();
-    const MyVoxel::VoxelNodeIndex level2Children = pool.allocateChildren();
+    const MyVoxel::VoxelIndex rootChildren = pool.allocateChildren();
+    const MyVoxel::VoxelIndex level1Children = pool.allocateChildren();
+    const MyVoxel::VoxelIndex level2Children = pool.allocateChildren();
 
     MyVoxel::VoxelNodeBlock& level1Parent = pool.node(rootChildren + 2);
     level1Parent.childMask = MyVoxel::VoxelNodeBlock::cornerBit(MyVoxel::VoxelCorner::MaximumY);
@@ -173,7 +173,7 @@ bool testDeepCopy()
 {
     MyVoxel::VoxelBlockPool source;
 
-    const MyVoxel::VoxelNodeIndex firstChildIndex = source.allocateChildren();
+    const MyVoxel::VoxelIndex firstChildIndex = source.allocateChildren();
 
     source.node(firstChildIndex + 4).leafMask = 0xA5;
     source.node(firstChildIndex + 4).userData = 12345;
@@ -202,8 +202,8 @@ bool testDeepAssignment()
     MyVoxel::VoxelBlockPool source;
     MyVoxel::VoxelBlockPool target;
 
-    const MyVoxel::VoxelNodeIndex sourceIndex = source.allocateChildren();
-    const MyVoxel::VoxelNodeIndex targetIndex = target.allocateChildren();
+    const MyVoxel::VoxelIndex sourceIndex = source.allocateChildren();
+    const MyVoxel::VoxelIndex targetIndex = target.allocateChildren();
 
     source.node(sourceIndex + 1).userData = 100;
     target.node(targetIndex + 1).userData = 200;

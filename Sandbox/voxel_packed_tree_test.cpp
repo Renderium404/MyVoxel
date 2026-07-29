@@ -82,7 +82,7 @@ bool testSplitAndChildAddressing()
         return false;
     }
 
-    const MyVoxel::VoxelNodeIndex childNodeIndex = tree.rootBlock.childNodeIndex(childCorner);
+    const MyVoxel::VoxelIndex childNodeIndex = tree.rootBlock.childNodeIndex(childCorner);
     const MyVoxel::VoxelNodeBlock& childBlock = tree.blockPool.node(childNodeIndex);
 
     if (childBlock.leafMask != 0xFF || childBlock.childMask != 0)
@@ -188,7 +188,7 @@ bool testDeepCopy()
         return false;
     }
 
-    const MyVoxel::VoxelNodeIndex firstChildIndex = source.rootBlock.firstChildIndex;
+    const MyVoxel::VoxelIndex firstChildIndex = source.rootBlock.firstChildIndex;
 
     if (&copy.blockPool.node(firstChildIndex) == &source.blockPool.node(firstChildIndex))
     {
@@ -221,7 +221,7 @@ bool testUserDataPreserved()
 
     childEditor.split();
 
-    const MyVoxel::VoxelNodeIndex childNodeIndex = tree.rootBlock.childNodeIndex(childCorner);
+    const MyVoxel::VoxelIndex childNodeIndex = tree.rootBlock.childNodeIndex(childCorner);
     MyVoxel::VoxelNodeBlock& childBlock = tree.blockPool.node(childNodeIndex);
 
     childBlock.userData = 54321;

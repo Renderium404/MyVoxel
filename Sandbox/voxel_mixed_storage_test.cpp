@@ -161,26 +161,26 @@ bool testMixedGroupReuse()
     parent.firstChildIndex = pool.allocateChildren();
     parent.setChildMaskLeaf(corner(7));
 
-    const MyVoxel::VoxelNodeIndex releasedIndex = parent.firstChildIndex;
+    const MyVoxel::VoxelIndex releasedIndex = parent.firstChildIndex;
 
     pool.initializeLeaf(parent.childLeafIndex(corner(7)), MyVoxel::VoxelState::Material);
     pool.releaseChildren(parent);
 
-    const MyVoxel::VoxelNodeIndex reusedIndex = pool.allocateChildren();
+    const MyVoxel::VoxelIndex reusedIndex = pool.allocateChildren();
 
     if (reusedIndex != releasedIndex)
     {
         return false;
     }
 
-    for (MyVoxel::VoxelNodeIndex childOffset = 0; childOffset < MyVoxel::VoxelBlockPool::ChildrenPerGroup; ++childOffset)
+    for (MyVoxel::VoxelIndex childOffset = 0; childOffset < MyVoxel::VoxelBlockPool::ChildrenPerGroup; ++childOffset)
     {
         const MyVoxel::VoxelNodeBlock& block = pool.node(reusedIndex + childOffset);
 
         if (block.childMask != 0 ||
             block.leafMask != 0 ||
             block.userData != 0 ||
-            block.firstChildIndex != MyVoxel::InvalidVoxelNodeIndex)
+            block.firstChildIndex != MyVoxel::InvalidVoxelIndex)
         {
             return false;
         }

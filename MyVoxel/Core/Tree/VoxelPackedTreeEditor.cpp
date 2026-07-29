@@ -114,14 +114,14 @@ void VoxelPackedTreeEditor::setState(VoxelState stateValue)
 
     if (m_referenceType == ReferenceType::MaskLeaf)
     {
-        const VoxelNodeIndex firstChildIndex = m_parentBlock->firstChildIndex;
+        const VoxelIndex firstChildIndex = m_parentBlock->firstChildIndex;
 
         m_parentBlock->setChildLeafState(m_corner, stateValue);
 
         if (m_parentBlock->childMask == 0)
         {
             m_tree->blockPool.releaseUnusedChildren(firstChildIndex);
-            m_parentBlock->firstChildIndex = InvalidVoxelNodeIndex;
+            m_parentBlock->firstChildIndex = InvalidVoxelIndex;
         }
 
         m_leafBlock = nullptr;
@@ -147,14 +147,14 @@ void VoxelPackedTreeEditor::setState(VoxelState stateValue)
         block.reset();
     }
 
-    const VoxelNodeIndex firstChildIndex = m_parentBlock->firstChildIndex;
+    const VoxelIndex firstChildIndex = m_parentBlock->firstChildIndex;
 
     m_parentBlock->setChildLeafState(m_corner, stateValue);
 
-    if (m_parentBlock->childMask == 0 && firstChildIndex != InvalidVoxelNodeIndex)
+    if (m_parentBlock->childMask == 0 && firstChildIndex != InvalidVoxelIndex)
     {
         m_tree->blockPool.releaseUnusedChildren(firstChildIndex);
-        m_parentBlock->firstChildIndex = InvalidVoxelNodeIndex;
+        m_parentBlock->firstChildIndex = InvalidVoxelIndex;
     }
 
     assert(isValid());
@@ -194,11 +194,11 @@ bool VoxelPackedTreeEditor::split()
 
     if (m_parentBlock->childMask == 0)
     {
-        assert(m_parentBlock->firstChildIndex == InvalidVoxelNodeIndex);
+        assert(m_parentBlock->firstChildIndex == InvalidVoxelIndex);
         m_parentBlock->firstChildIndex = m_tree->blockPool.allocateChildren();
     }
 
-    const VoxelNodeIndex nodeIndex = m_parentBlock->firstChildIndex + static_cast<VoxelNodeIndex>(m_corner);
+    const VoxelIndex nodeIndex = m_parentBlock->firstChildIndex + static_cast<VoxelIndex>(m_corner);
 
     m_tree->blockPool.initializeNode(nodeIndex, inheritedState);
     m_parentBlock->setChildBranch(m_corner);
@@ -228,11 +228,11 @@ bool VoxelPackedTreeEditor::makeMaskLeaf()
 
     if (m_parentBlock->childMask == 0)
     {
-        assert(m_parentBlock->firstChildIndex == InvalidVoxelNodeIndex);
+        assert(m_parentBlock->firstChildIndex == InvalidVoxelIndex);
         m_parentBlock->firstChildIndex = m_tree->blockPool.allocateChildren();
     }
 
-    const VoxelNodeIndex leafIndex = m_parentBlock->firstChildIndex + static_cast<VoxelNodeIndex>(m_corner);
+    const VoxelIndex leafIndex = m_parentBlock->firstChildIndex + static_cast<VoxelIndex>(m_corner);
     VoxelLeafBlock& leafBlock = m_tree->blockPool.initializeLeaf(leafIndex, inheritedState);
 
     m_parentBlock->setChildMaskLeaf(m_corner);
@@ -372,14 +372,14 @@ VoxelState VoxelPackedTreeEditor::merge()
 
     block.reset();
 
-    const VoxelNodeIndex firstChildIndex = m_parentBlock->firstChildIndex;
+    const VoxelIndex firstChildIndex = m_parentBlock->firstChildIndex;
 
     m_parentBlock->setChildLeafState(m_corner, mergedState);
 
     if (m_parentBlock->childMask == 0)
     {
         m_tree->blockPool.releaseUnusedChildren(firstChildIndex);
-        m_parentBlock->firstChildIndex = InvalidVoxelNodeIndex;
+        m_parentBlock->firstChildIndex = InvalidVoxelIndex;
     }
 
     assert(isValid());
@@ -426,14 +426,14 @@ VoxelState VoxelPackedTreeEditor::mergeMaskLeaf()
     }
 
     const VoxelState mergedState = m_leafBlock->isFull() ? VoxelState::Material : VoxelState::Empty;
-    const VoxelNodeIndex firstChildIndex = m_parentBlock->firstChildIndex;
+    const VoxelIndex firstChildIndex = m_parentBlock->firstChildIndex;
 
     m_parentBlock->setChildLeafState(m_corner, mergedState);
 
     if (m_parentBlock->childMask == 0)
     {
         m_tree->blockPool.releaseUnusedChildren(firstChildIndex);
-        m_parentBlock->firstChildIndex = InvalidVoxelNodeIndex;
+        m_parentBlock->firstChildIndex = InvalidVoxelIndex;
     }
 
     m_leafBlock = nullptr;
