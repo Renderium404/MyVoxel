@@ -1,93 +1,103 @@
-#ifndef MYVOXEL_VOXELSHAPE_H
-#define MYVOXEL_VOXELSHAPE_H
+#ifndef MYVOXEL_CORE_VOXELSHAPE_H
+#define MYVOXEL_CORE_VOXELSHAPE_H
 
-#include <memory>
+#include <cstddef>
 
 #include "MyMath/Matrix4.h"
 #include "MyMath/Vector3.h"
 
-#include "VoxelNodeForest.h"
+#include "MyVoxel/Core/Tree/VoxelForest.h"
+#include "MyVoxel/Core/VoxelGrid.h"
+#include "MyVoxel/Foundation/ReferenceCounted.h"
+#include "MyVoxel/Foundation/RefPtr.h"
 
 namespace MyVoxel
 {
 
-// 表示由体素节点森林和空间变换描述的形体。
+// 表示由体素网格、稀疏体素森林和实例空间变换组成的离散体积。
 class VoxelShape
 {
 public:
+    // 使用原点位于世界原点、基础边长为1且最高层级为第0层的体素网格创建空体积。
     VoxelShape();
+
+    // 使用指定体素网格创建空体积。
+    explicit VoxelShape(const VoxelGrid& grid);
+
+    // 使用指定基础体素边长和最高层级创建原点位于世界原点的空体积。
+    VoxelShape(double baseVoxelEdgeLength, VoxelLevel maximumLevel);
+
+    // 使用指定网格原点、基础体素边长和最高层级创建空体积。
+    VoxelShape(const MyMath::Vector3& origin, double baseVoxelEdgeLength, VoxelLevel maximumLevel);
+
     VoxelShape(const VoxelShape&) = default;
     VoxelShape& operator=(const VoxelShape&) = default;
-    virtual ~VoxelShape() = default;
+    ~VoxelShape() = default;
 
-    /// 体素配置
+    /// 体素空间
 
-    // 返回第0层默认体素边长。
-    double baseVoxelEdgeLength() const;
+    // 返回当前体积使用的只读体素网格。
+    const VoxelGrid& grid() const;
 
-    // 设置第0层默认体素边长，并清除当前形体的节点森林。
-    void setBaseVoxelEdgeLength(double edgeLength);
+    /// 体素数据
 
-    // 返回形体允许使用的最高细分层级。
-    VoxelLevel maximumLevel() const;
+    // 返回当前体积的只读稀疏体素森林，不触发写时复制。
+    const VoxelForest& forest() const;
 
-    // 设置形体允许使用的最高细分层级，并清除当前形体的节点森林。
-    void setMaximumLevel(VoxelLevel level);
+    // 返回当前体积的可写稀疏体素森林，必要时分离共享体素数据。
+    VoxelForest& editForest();
 
-    // 返回指定层级的体素边长。
-    double voxelEdgeLength(VoxelLevel level) const;
+    // 判断当前体积是否没有任何实际根树。
+    bool isEmpty() const;
 
-    /// 节点森林
+    // 返回当前体积实际保存的第0层根树数量。
+    std::size_t rootCount() const;
 
-    // 返回可修改的节点森林，必要时执行写时复制。
-    VoxelNodeForest& forest();
-
-    // 返回只读节点森林，不触发写时复制。
-    const VoxelNodeForest& forest() const;
-
-    // 清空当前形体的节点森林。
+    // 清空当前体积的全部体素材料数据，保留体素网格和空间变换。
     void clear();
 
-    // 检查当前形体是否与另一个形体共享体素数据。
+    // 判断当前体积是否与另一个体积共享同一份体素网格和森林数据。
     bool sharesDataWith(const VoxelShape& other) const;
-
-    /// 连续空间查询
-
-    // 返回指定局部坐标点在给定层级对应的体素地址。
-    VoxelCellAddress localAddressAt(const MyMath::Vector3& point, VoxelLevel level) const;
-
-    // 返回指定局部坐标点对应的实际节点状态。
-    VoxelState stateAtLocalPoint(const MyMath::Vector3& point) const;
-
-    // 检查指定局部坐标点是否位于材料区域。
-    bool containsLocalPoint(const MyMath::Vector3& point) const;
 
     /// 空间变换
 
-    // 返回当前形体的空间变换。
+    // 返回当前体积从局部坐标到外部坐标的变换矩阵。
     const MyMath::Matrix4& transform() const;
 
-    // 设置当前形体的空间变换。
+    // 设置当前体积从局部坐标到外部坐标的仿射变换。
     void setTransform(const MyMath::Matrix4& transform);
 
-    // 将当前形体的空间变换恢复为单位矩阵。
+    // 将当前体积的空间变换恢复为单位矩阵。
     void resetTransform();
 
 private:
-    struct SharedData
+    // 保存可以在多个VoxelShape之间共享的体素网格和森林数据。
+    class Data : public Foundation::ReferenceCounted
     {
-        VoxelNodeForest forest; // 当前形体的节点森林。
-        double baseVoxelEdgeLength = 1.0; // 第0层默认体素边长。
-        VoxelLevel maximumLevel = BaseVoxelLevel; // 允许使用的最高细分层级。
+    public:
+        // 使用指定体素网格创建空共享数据。
+        explicit Data(const VoxelGrid& gridValue);
+
+        // 复制体素网格和森林根映射，森林内部根树继续共享。
+        Data(const Data& other);
+
+        Data& operator=(const Data&) = delete;
+
+        VoxelGrid grid; // 当前体积使用的固定空间映射。
+        VoxelForest forest; // 当前体积保存的稀疏体素材料数据。
+
+    protected:
+        ~Data() override = default;
     };
 
-    // 当体素数据被多个形体共享时创建当前形体的独立副本。
+    // 当共享数据被多个体积引用时创建当前体积的独立数据副本。
     void detach();
 
-    std::shared_ptr<SharedData> m_data; // 支持写时复制的共享体素数据。
-    MyMath::Matrix4 m_transform; // 当前形体独立保存的空间变换。
+private:
+    Foundation::RefPtr<Data> m_data; // 支持写时复制的体素网格和森林数据。
+    MyMath::Matrix4 m_transform; // 当前体积独立保存的局部到外部空间变换。
 };
 
 }
 
-#endif // MYVOXEL_VOXELSHAPE_H
+#endif // MYVOXEL_CORE_VOXELSHAPE_H

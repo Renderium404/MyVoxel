@@ -1,93 +1,82 @@
 #include "VoxelShape.h"
 
-#include <cassert>
-#include <cmath>
-#include <limits>
-
-namespace
-{
-
-// 将连续坐标转换为指定体素边长下的空间索引。
-MyVoxel::VoxelIndex coordinateIndex(double coordinate, double edgeLength)
-{
-    assert(std::isfinite(coordinate));
-    assert(std::isfinite(edgeLength) && edgeLength > 0.0);
-
-    const double value = std::floor(coordinate / edgeLength);
-    const double minimum = static_cast<double>((std::numeric_limits<MyVoxel::VoxelIndex>::min)());
-    const double maximum = static_cast<double>((std::numeric_limits<MyVoxel::VoxelIndex>::max)());
-
-    assert(value >= minimum && value <= maximum);
-    return static_cast<MyVoxel::VoxelIndex>(value);
-}
-
-}
+#include "MyVoxel/Foundation/Diagnostic.h"
 
 namespace MyVoxel
 {
 
+VoxelShape::Data::Data(const VoxelGrid& gridValue)
+    : grid(gridValue)
+{
+    MYVOXEL_ASSERT_MESSAGE(grid.isValid(), "VoxelShape requires a valid VoxelGrid.");
+}
+
+VoxelShape::Data::Data(const Data& other)
+    : grid(other.grid)
+    , forest(other.forest)
+{
+    MYVOXEL_ASSERT_MESSAGE(grid.isValid(), "Copied VoxelShape data must contain a valid VoxelGrid.");
+}
+
 VoxelShape::VoxelShape()
-    : m_data(std::make_shared<SharedData>())
+    : m_data(Foundation::makeRef<Data>(VoxelGrid(1.0, BaseVoxelLevel)))
     , m_transform(MyMath::Matrix4::identity())
 {
 }
 
-double VoxelShape::baseVoxelEdgeLength() const
+VoxelShape::VoxelShape(const VoxelGrid& grid)
+    : m_data(Foundation::makeRef<Data>(grid))
+    , m_transform(MyMath::Matrix4::identity())
 {
-    return m_data->baseVoxelEdgeLength;
 }
 
-void VoxelShape::setBaseVoxelEdgeLength(double edgeLength)
+VoxelShape::VoxelShape(double baseVoxelEdgeLength, VoxelLevel maximumLevel)
+    : m_data(Foundation::makeRef<Data>(VoxelGrid(baseVoxelEdgeLength, maximumLevel)))
+    , m_transform(MyMath::Matrix4::identity())
 {
-    assert(std::isfinite(edgeLength) && edgeLength > 0.0);
-
-    if (m_data->baseVoxelEdgeLength == edgeLength)
-    {
-        return;
-    }
-
-    detach();
-    m_data->baseVoxelEdgeLength = edgeLength;
-    m_data->forest.clear();
 }
 
-VoxelLevel VoxelShape::maximumLevel() const
+VoxelShape::VoxelShape(const MyMath::Vector3& origin, double baseVoxelEdgeLength, VoxelLevel maximumLevel)
+    : m_data(Foundation::makeRef<Data>(VoxelGrid(origin, baseVoxelEdgeLength, maximumLevel)))
+    , m_transform(MyMath::Matrix4::identity())
 {
-    return m_data->maximumLevel;
 }
 
-void VoxelShape::setMaximumLevel(VoxelLevel level)
-{
-    if (m_data->maximumLevel == level)
-    {
-        return;
-    }
+/// 体素空间
 
-    detach();
-    m_data->maximumLevel = level;
-    m_data->forest.clear();
+const VoxelGrid& VoxelShape::grid() const
+{
+    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
+    return m_data->grid;
 }
 
-double VoxelShape::voxelEdgeLength(VoxelLevel level) const
+/// 体素数据
+
+const VoxelForest& VoxelShape::forest() const
 {
-    assert(level <= m_data->maximumLevel);
-    return std::ldexp(m_data->baseVoxelEdgeLength, -static_cast<int>(level));
+    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
+    return m_data->forest;
 }
 
-VoxelNodeForest& VoxelShape::forest()
+VoxelForest& VoxelShape::editForest()
 {
     detach();
     return m_data->forest;
 }
 
-const VoxelNodeForest& VoxelShape::forest() const
+bool VoxelShape::isEmpty() const
 {
-    return m_data->forest;
+    return forest().isEmpty();
+}
+
+std::size_t VoxelShape::rootCount() const
+{
+    return forest().rootCount();
 }
 
 void VoxelShape::clear()
 {
-    if (m_data->forest.rootCount() == 0)
+    if (isEmpty())
     {
         return;
     }
@@ -98,31 +87,10 @@ void VoxelShape::clear()
 
 bool VoxelShape::sharesDataWith(const VoxelShape& other) const
 {
-    return m_data == other.m_data;
+    return m_data.get() == other.m_data.get();
 }
 
-VoxelCellAddress VoxelShape::localAddressAt(const MyMath::Vector3& point, VoxelLevel level) const
-{
-    assert(point.isFinite());
-    assert(level <= m_data->maximumLevel);
-
-    const double edgeLength = voxelEdgeLength(level);
-    const VoxelIndex x = coordinateIndex(point.x(), edgeLength);
-    const VoxelIndex y = coordinateIndex(point.y(), edgeLength);
-    const VoxelIndex z = coordinateIndex(point.z(), edgeLength);
-
-    return VoxelCellAddress(VoxelCellIndex(x, y, z), level);
-}
-
-VoxelState VoxelShape::stateAtLocalPoint(const MyMath::Vector3& point) const
-{
-    return m_data->forest.state(localAddressAt(point, m_data->maximumLevel));
-}
-
-bool VoxelShape::containsLocalPoint(const MyMath::Vector3& point) const
-{
-    return stateAtLocalPoint(point) == VoxelState::Material;
-}
+/// 空间变换
 
 const MyMath::Matrix4& VoxelShape::transform() const
 {
@@ -131,7 +99,7 @@ const MyMath::Matrix4& VoxelShape::transform() const
 
 void VoxelShape::setTransform(const MyMath::Matrix4& transform)
 {
-    assert(transform.isAffine());
+    MYVOXEL_ASSERT_MESSAGE(transform.isAffine(), "VoxelShape transform must be affine.");
     m_transform = transform;
 }
 
@@ -142,11 +110,11 @@ void VoxelShape::resetTransform()
 
 void VoxelShape::detach()
 {
-    assert(m_data);
+    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
 
-    if (!m_data.unique())
+    if (m_data->referenceCount() > 1)
     {
-        m_data = std::make_shared<SharedData>(*m_data);
+        m_data = Foundation::makeRef<Data>(*m_data);
     }
 }
 

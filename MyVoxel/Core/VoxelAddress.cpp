@@ -1,74 +1,61 @@
 #include "VoxelAddress.h"
 
-#include <cassert>
-#include <cstdint>
 #include <limits>
+
+#include "MyVoxel/Foundation/Diagnostic.h"
 
 namespace
 {
 
-// 对有符号整数执行向负无穷取整的二分。
-MyVoxel::VoxelIndex floorDivideByTwo(MyVoxel::VoxelIndex value)
+const unsigned int XCornerMask = 1; // VoxelCorner第0位表示X方向子体素位置。
+const unsigned int YCornerMask = 2; // VoxelCorner第1位表示Y方向子体素位置。
+const unsigned int ZCornerMask = 4; // VoxelCorner第2位表示Z方向子体素位置。
+
+// 返回整数索引按二等分层级规则对应的父级索引。
+MyVoxel::VoxelIndex parentIndex(MyVoxel::VoxelIndex index)
 {
-    MyVoxel::VoxelIndex quotient = value / 2;
-    const MyVoxel::VoxelIndex remainder = value % 2;
-
-    if (remainder < 0)
-    {
-        --quotient;
-    }
-
-    return quotient;
+    const MyVoxel::VoxelIndex quotient = index / 2;
+    const MyVoxel::VoxelIndex remainder = index % 2;
+    return remainder < 0 ? quotient - 1 : quotient;
 }
 
-// 返回始终位于0或1范围内的二进制余数。
-unsigned int positiveModuloTwo(MyVoxel::VoxelIndex value)
+// 返回当前索引在父级索引中的二进制方向，结果固定为0或1。
+unsigned int childBit(MyVoxel::VoxelIndex index)
 {
-    const MyVoxel::VoxelIndex remainder = value % 2;
-    return static_cast<unsigned int>(remainder < 0 ? remainder + 2 : remainder);
+    const MyVoxel::VoxelIndex parent = parentIndex(index);
+    return static_cast<unsigned int>(index - parent * 2);
 }
 
-// 返回父索引分量对应的指定侧子索引分量。
-MyVoxel::VoxelIndex childIndex(MyVoxel::VoxelIndex parent, bool maximumSide)
+// 返回指定父级索引和二进制方向对应的子级索引。
+MyVoxel::VoxelIndex childIndex(MyVoxel::VoxelIndex parent, unsigned int bit)
 {
-    const std::int64_t child = static_cast<std::int64_t>(parent) * 2 + (maximumSide ? 1 : 0);
+    MYVOXEL_ASSERT_MESSAGE(bit <= 1, "Voxel child bit must be zero or one.");
+
+    const std::int64_t result = static_cast<std::int64_t>(parent) * 2 + static_cast<std::int64_t>(bit);
     const std::int64_t minimum = static_cast<std::int64_t>((std::numeric_limits<MyVoxel::VoxelIndex>::min)());
     const std::int64_t maximum = static_cast<std::int64_t>((std::numeric_limits<MyVoxel::VoxelIndex>::max)());
 
-    assert(child >= minimum);
-    assert(child <= maximum);
-
-    return static_cast<MyVoxel::VoxelIndex>(child);
+    MYVOXEL_ASSERT_MESSAGE(result >= minimum && result <= maximum, "Voxel child index exceeds VoxelIndex range.");
+    return static_cast<MyVoxel::VoxelIndex>(result);
 }
 
-// 判断角点是否位于X轴最大侧。
-bool usesMaximumX(MyVoxel::VoxelCorner corner)
+// 返回一个闭区间中包含的整数数量。
+std::uint64_t indexCount(MyVoxel::VoxelIndex minimum, MyVoxel::VoxelIndex maximum)
 {
-    const unsigned int value = static_cast<unsigned int>(corner);
-    assert(value < static_cast<unsigned int>(MyVoxel::VoxelCornerCount));
-    return (value & 1U) != 0U;
-}
-
-// 判断角点是否位于Y轴最大侧。
-bool usesMaximumY(MyVoxel::VoxelCorner corner)
-{
-    const unsigned int value = static_cast<unsigned int>(corner);
-    assert(value < static_cast<unsigned int>(MyVoxel::VoxelCornerCount));
-    return (value & 2U) != 0U;
-}
-
-// 判断角点是否位于Z轴最大侧。
-bool usesMaximumZ(MyVoxel::VoxelCorner corner)
-{
-    const unsigned int value = static_cast<unsigned int>(corner);
-    assert(value < static_cast<unsigned int>(MyVoxel::VoxelCornerCount));
-    return (value & 4U) != 0U;
+    return static_cast<std::uint64_t>(static_cast<std::int64_t>(maximum) - static_cast<std::int64_t>(minimum) + 1);
 }
 
 }
 
 namespace MyVoxel
 {
+
+VoxelCellIndex::VoxelCellIndex()
+    : x(0)
+    , y(0)
+    , z(0)
+{
+}
 
 VoxelCellIndex::VoxelCellIndex(VoxelIndex xValue, VoxelIndex yValue, VoxelIndex zValue)
     : x(xValue)
@@ -102,6 +89,11 @@ bool VoxelCellIndex::operator<(const VoxelCellIndex& other) const
     return z < other.z;
 }
 
+VoxelCellAddress::VoxelCellAddress()
+    : level(BaseVoxelLevel)
+{
+}
+
 VoxelCellAddress::VoxelCellAddress(const VoxelCellIndex& indexValue, VoxelLevel levelValue)
     : index(indexValue)
     , level(levelValue)
@@ -110,7 +102,7 @@ VoxelCellAddress::VoxelCellAddress(const VoxelCellIndex& indexValue, VoxelLevel 
 
 bool VoxelCellAddress::operator==(const VoxelCellAddress& other) const
 {
-    return index == other.index && level == other.level;
+    return level == other.level && index == other.index;
 }
 
 bool VoxelCellAddress::operator!=(const VoxelCellAddress& other) const
@@ -128,6 +120,64 @@ bool VoxelCellAddress::operator<(const VoxelCellAddress& other) const
     return index < other.index;
 }
 
+VoxelCellRange::VoxelCellRange()
+    : minimum(0, 0, 0)
+    , maximum(-1, -1, -1)
+    , level(BaseVoxelLevel)
+{
+}
+
+VoxelCellRange::VoxelCellRange(const VoxelCellIndex& minimumValue, const VoxelCellIndex& maximumValue, VoxelLevel levelValue)
+    : minimum(minimumValue)
+    , maximum(maximumValue)
+    , level(levelValue)
+{
+    MYVOXEL_ASSERT_MESSAGE(isValid(), "VoxelCellRange minimum index must not exceed maximum index.");
+}
+
+/// 状态判断
+
+bool VoxelCellRange::isValid() const
+{
+    return minimum.x <= maximum.x && minimum.y <= maximum.y && minimum.z <= maximum.z;
+}
+
+bool VoxelCellRange::contains(const VoxelCellIndex& cellIndex) const
+{
+    if (!isValid())
+    {
+        return false;
+    }
+
+    return cellIndex.x >= minimum.x && cellIndex.x <= maximum.x &&
+           cellIndex.y >= minimum.y && cellIndex.y <= maximum.y &&
+           cellIndex.z >= minimum.z && cellIndex.z <= maximum.z;
+}
+
+bool VoxelCellRange::contains(const VoxelCellAddress& address) const
+{
+    return isValid() && address.level == level && contains(address.index);
+}
+
+/// 范围属性
+
+std::uint64_t VoxelCellRange::countX() const
+{
+    return isValid() ? indexCount(minimum.x, maximum.x) : 0;
+}
+
+std::uint64_t VoxelCellRange::countY() const
+{
+    return isValid() ? indexCount(minimum.y, maximum.y) : 0;
+}
+
+std::uint64_t VoxelCellRange::countZ() const
+{
+    return isValid() ? indexCount(minimum.z, maximum.z) : 0;
+}
+
+/// 体素层级关系
+
 bool hasParentCell(const VoxelCellAddress& address)
 {
     return address.level > BaseVoxelLevel;
@@ -135,37 +185,55 @@ bool hasParentCell(const VoxelCellAddress& address)
 
 VoxelCellAddress parentCellAddress(const VoxelCellAddress& address)
 {
-    assert(hasParentCell(address));
+    MYVOXEL_ASSERT_MESSAGE(hasParentCell(address), "Base level voxel cell does not have a parent.");
 
-    return VoxelCellAddress(
-        VoxelCellIndex(
-            floorDivideByTwo(address.index.x),
-            floorDivideByTwo(address.index.y),
-            floorDivideByTwo(address.index.z)),
-        static_cast<VoxelLevel>(address.level - 1));
+    const VoxelCellIndex parent(parentIndex(address.index.x), parentIndex(address.index.y), parentIndex(address.index.z));
+    return VoxelCellAddress(parent, static_cast<VoxelLevel>(address.level - 1));
 }
 
 VoxelCellAddress childCellAddress(const VoxelCellAddress& address, VoxelCorner childCorner)
 {
-    assert(address.level < (std::numeric_limits<VoxelLevel>::max)());
+    MYVOXEL_ASSERT_MESSAGE(address.level < (std::numeric_limits<VoxelLevel>::max)(), "Voxel level exceeds VoxelLevel range.");
 
-    return VoxelCellAddress(
-        VoxelCellIndex(
-            childIndex(address.index.x, usesMaximumX(childCorner)),
-            childIndex(address.index.y, usesMaximumY(childCorner)),
-            childIndex(address.index.z, usesMaximumZ(childCorner))),
-        static_cast<VoxelLevel>(address.level + 1));
+    const unsigned int cornerValue = static_cast<unsigned int>(childCorner);
+
+    MYVOXEL_ASSERT_MESSAGE(cornerValue < VoxelCornerCount, "Voxel child corner must be in range [0, 7].");
+
+    const unsigned int xBit = cornerValue & XCornerMask;
+    const unsigned int yBit = (cornerValue & YCornerMask) >> 1;
+    const unsigned int zBit = (cornerValue & ZCornerMask) >> 2;
+
+    const VoxelCellIndex child(childIndex(address.index.x, xBit), childIndex(address.index.y, yBit), childIndex(address.index.z, zBit));
+    return VoxelCellAddress(child, static_cast<VoxelLevel>(address.level + 1));
 }
 
 VoxelCorner childCornerInParent(const VoxelCellAddress& address)
 {
-    assert(hasParentCell(address));
+    MYVOXEL_ASSERT_MESSAGE(hasParentCell(address), "Base level voxel cell does not have a parent corner.");
 
-    const unsigned int xBit = positiveModuloTwo(address.index.x);
-    const unsigned int yBit = positiveModuloTwo(address.index.y);
-    const unsigned int zBit = positiveModuloTwo(address.index.z);
-
+    const unsigned int xBit = childBit(address.index.x);
+    const unsigned int yBit = childBit(address.index.y);
+    const unsigned int zBit = childBit(address.index.z);
     return static_cast<VoxelCorner>(xBit | (yBit << 1) | (zBit << 2));
+}
+
+VoxelCellAddress ancestorCellAddress(const VoxelCellAddress& address, VoxelLevel targetLevel)
+{
+    MYVOXEL_ASSERT_MESSAGE(targetLevel <= address.level, "Voxel ancestor level must not exceed the current level.");
+
+    VoxelCellAddress ancestor = address;
+
+    while (ancestor.level > targetLevel)
+    {
+        ancestor = parentCellAddress(ancestor);
+    }
+
+    return ancestor;
+}
+
+VoxelCellAddress rootCellAddress(const VoxelCellAddress& address)
+{
+    return ancestorCellAddress(address, BaseVoxelLevel);
 }
 
 }

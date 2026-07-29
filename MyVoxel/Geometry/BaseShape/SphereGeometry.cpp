@@ -1,0 +1,115 @@
+#include "SphereGeometry.h"
+
+#include <algorithm>
+#include <limits>
+
+#include "MyVoxel/Foundation/Diagnostic.h"
+
+namespace
+{
+
+// 判断数值是否为有限正数。
+bool isFinitePositive(double value)
+{
+    const double infinity = std::numeric_limits<double>::infinity();
+    return value == value && value != infinity && value != -infinity && value > 0.0;
+}
+
+// 返回坐标原点到闭区间的最短距离。
+double distanceToInterval(double minimum, double maximum)
+{
+    if (minimum > 0.0)
+    {
+        return minimum;
+    }
+
+    if (maximum < 0.0)
+    {
+        return -maximum;
+    }
+
+    return 0.0;
+}
+
+// 返回坐标原点到闭区间端点的最大绝对距离。
+double maximumDistanceToInterval(double minimum, double maximum)
+{
+    return (std::max)(minimum * minimum, maximum * maximum);
+}
+
+}
+
+namespace MyVoxel
+{
+namespace Geometry
+{
+
+SphereGeometry::SphereGeometry(double radius)
+    : m_radius(radius)
+    , m_radiusSquared(radius * radius)
+    , m_bounds(MyMath::Vector3(-radius, -radius, -radius), MyMath::Vector3(radius, radius, radius))
+{
+    MYVOXEL_ASSERT_MESSAGE(isFinitePositive(radius), "SphereGeometry radius must be finite and greater than zero.");
+}
+
+/// 几何参数
+
+double SphereGeometry::radius() const
+{
+    return m_radius;
+}
+
+/// 几何属性
+
+ShapeKind SphereGeometry::kind() const
+{
+    return ShapeKind::Sphere;
+}
+
+Bounds3 SphereGeometry::localBounds() const
+{
+    return m_bounds;
+}
+
+/// 空间查询
+
+bool SphereGeometry::containsLocalPoint(const MyMath::Vector3& point) const
+{
+    MYVOXEL_ASSERT_MESSAGE(point.isFinite(), "SphereGeometry query point must be finite.");
+
+    const double distanceSquared = point.x() * point.x() + point.y() * point.y() + point.z() * point.z();
+    return distanceSquared <= m_radiusSquared;
+}
+
+ShapeRelation SphereGeometry::classifyLocalBounds(const Bounds3& bounds) const
+{
+    MYVOXEL_ASSERT_MESSAGE(bounds.isValid(), "SphereGeometry query bounds must be valid.");
+
+    const MyMath::Vector3& minimum = bounds.minimum();
+    const MyMath::Vector3& maximum = bounds.maximum();
+
+    const double nearestX = distanceToInterval(minimum.x(), maximum.x());
+    const double nearestY = distanceToInterval(minimum.y(), maximum.y());
+    const double nearestZ = distanceToInterval(minimum.z(), maximum.z());
+    const double minimumDistanceSquared = nearestX * nearestX + nearestY * nearestY + nearestZ * nearestZ;
+
+    if (minimumDistanceSquared > m_radiusSquared)
+    {
+        return ShapeRelation::Outside;
+    }
+
+    const double maximumDistanceSquared =
+        maximumDistanceToInterval(minimum.x(), maximum.x()) +
+        maximumDistanceToInterval(minimum.y(), maximum.y()) +
+        maximumDistanceToInterval(minimum.z(), maximum.z());
+
+    if (maximumDistanceSquared < m_radiusSquared)
+    {
+        return ShapeRelation::Inside;
+    }
+
+    return ShapeRelation::Intersecting;
+}
+
+}
+}

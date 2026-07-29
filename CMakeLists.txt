@@ -54,7 +54,7 @@ endif()
 # =========================================================
 # 子模块
 # =========================================================
-
+    
 add_subdirectory(MyMath)
 add_subdirectory(MyVoxel)
 
@@ -91,88 +91,91 @@ endif()
 #   显示标准Shape、体素表面和体素实例
 # =========================================================
 
-if(MYVOXEL_BUILD_VIEWER)
+# if(MYVOXEL_BUILD_VIEWER)
 
-    # -----------------------------------------------------
-    # OpenGL显示数据
-    # -----------------------------------------------------
+#     # -----------------------------------------------------
+#     # OpenGL显示数据
+#     # -----------------------------------------------------
 
-    set(MYVOXEL_VIEWER_OPENGL_SRC
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayColor.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayColor.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayMesh.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayMesh.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelDisplayInstance.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelDisplayInstance.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelInstanceCollector.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelInstanceCollector.h"
-    )
+#     set(MYVOXEL_VIEWER_OPENGL_SRC
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayColor.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayColor.h"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayMesh.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/DisplayMesh.h"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelDisplayInstance.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelDisplayInstance.h"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelInstanceCollector.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/OpenGL/VoxelInstanceCollector.h"
+#     )
 
-    # -----------------------------------------------------
-    # 显示数据构建
-    # -----------------------------------------------------
+#     # -----------------------------------------------------
+#     # 显示数据构建
+#     # -----------------------------------------------------
 
-    set(MYVOXEL_VIEWER_BUILDER_SRC
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/ShapeDisplayBuilder.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/ShapeDisplayBuilder.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/VoxelSurfaceDisplayBuilder.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/VoxelSurfaceDisplayBuilder.h"
-    )
+#     set(MYVOXEL_VIEWER_BUILDER_SRC
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/ShapeDisplayBuilder.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/ShapeDisplayBuilder.h"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/VoxelSurfaceDisplayBuilder.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Builder/VoxelSurfaceDisplayBuilder.h"
+#     )
 
-    # -----------------------------------------------------
-    # 显示控件
-    # -----------------------------------------------------
+#     # -----------------------------------------------------
+#     # 显示控件
+#     # -----------------------------------------------------
 
-    set(MYVOXEL_VIEWER_WIDGET_SRC
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelInstanceViewWidget.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelInstanceViewWidget.h"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelMeshViewWidget.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelMeshViewWidget.h"
-    )
+#     set(MYVOXEL_VIEWER_WIDGET_SRC
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelInstanceViewWidget.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelInstanceViewWidget.h"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelMeshViewWidget.cpp"
+#         "${CMAKE_CURRENT_SOURCE_DIR}/Viewer/Widget/VoxelMeshViewWidget.h"
+#     )
 
-    set(MYVOXEL_VIEWER_SRC
-        ${MYVOXEL_VIEWER_OPENGL_SRC}
-        ${MYVOXEL_VIEWER_BUILDER_SRC}
-        ${MYVOXEL_VIEWER_WIDGET_SRC}
-    )
+#     set(MYVOXEL_VIEWER_SRC
+#         ${MYVOXEL_VIEWER_OPENGL_SRC}
+#         ${MYVOXEL_VIEWER_BUILDER_SRC}
+#         ${MYVOXEL_VIEWER_WIDGET_SRC}
+#     )
 
-    add_library(MyVoxelOpenGLViewer STATIC
-        ${MYVOXEL_VIEWER_SRC}
-    )
+#     add_library(MyVoxelOpenGLViewer STATIC
+#         ${MYVOXEL_VIEWER_SRC}
+#     )
 
-    add_library(MyVoxel::Viewer ALIAS MyVoxelOpenGLViewer)
+#     add_library(MyVoxel::Viewer ALIAS MyVoxelOpenGLViewer)
 
-    target_include_directories(MyVoxelOpenGLViewer PUBLIC
-        "${CMAKE_CURRENT_SOURCE_DIR}"
-    )
+#     target_include_directories(MyVoxelOpenGLViewer PUBLIC
+#         "${CMAKE_CURRENT_SOURCE_DIR}"
+#     )
 
-    target_link_libraries(MyVoxelOpenGLViewer PUBLIC
-        MyVoxel
-        Qt5::Core
-        Qt5::Gui
-        Qt5::Widgets
-    )
+#     target_link_libraries(MyVoxelOpenGLViewer PUBLIC
+#         MyVoxel
+#         Qt5::Core
+#         Qt5::Gui
+#         Qt5::Widgets
+#     )
 
-    set_target_properties(MyVoxelOpenGLViewer PROPERTIES
-        AUTOMOC OFF
-        AUTOUIC OFF
-        AUTORCC OFF
-        FOLDER "Viewer"
-    )
+#     set_target_properties(MyVoxelOpenGLViewer PROPERTIES
+#         AUTOMOC OFF
+#         AUTOUIC OFF
+#         AUTORCC OFF
+#         FOLDER "Viewer"
+#     )
 
-    source_group(
-        TREE "${CMAKE_CURRENT_SOURCE_DIR}/Viewer"
-        PREFIX "Viewer"
-        FILES ${MYVOXEL_VIEWER_SRC}
-    )
+#     source_group(
+#         TREE "${CMAKE_CURRENT_SOURCE_DIR}/Viewer"
+#         PREFIX "Viewer"
+#         FILES ${MYVOXEL_VIEWER_SRC}
+#     )
 
-endif()
-
+# endif()
+    
 # =========================================================
 # SandBox测试
 #
 # 普通测试：
 #   链接MyVoxel
+#
+# 性能统计测试：
+#   链接MyVoxelTest
 #
 # Viewer测试：
 #   链接MyVoxel::Viewer
@@ -180,17 +183,24 @@ endif()
 
 if(MYVOXEL_BUILD_SANDBOX)
 
+    # 这些测试需要MYVOXEL_TEST和带性能统计的MyVoxelTest库。
+    set(MYVOXEL_STATISTICS_SANDBOX_TARGETS
+        boolean_operation_statistics_test
+        voxel_boolean_cut_test
+        voxel_cut_performance_test
+    )
+
     file(GLOB SANDBOX_SRC CONFIGURE_DEPENDS
         "${CMAKE_CURRENT_SOURCE_DIR}/SandBox/*.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/SandBox/*.cxx"
     )
 
     # 这些测试需要Qt OpenGL可视化模块。
-    set(MYVOXEL_VIEWER_SANDBOX_TARGETS
-        voxel_display_test
-        shape_display_test
-        voxel_surface_display_test
-    )
+    # set(MYVOXEL_VIEWER_SANDBOX_TARGETS
+    #     voxel_display_test
+    #     shape_display_test
+    #     voxel_surface_display_test
+    # )
 
     foreach(SOURCE_FILE IN LISTS SANDBOX_SRC)
         get_filename_component(SOURCE_NAME "${SOURCE_FILE}" NAME_WE)
@@ -204,6 +214,7 @@ if(MYVOXEL_BUILD_SANDBOX)
         endif()
 
         list(FIND MYVOXEL_VIEWER_SANDBOX_TARGETS "${TARGET_NAME}" VIEWER_TARGET_INDEX)
+        list(FIND MYVOXEL_STATISTICS_SANDBOX_TARGETS "${TARGET_NAME}" STATISTICS_TARGET_INDEX)
 
         if(VIEWER_TARGET_INDEX GREATER -1 AND NOT MYVOXEL_BUILD_VIEWER)
             message(STATUS "Skip sandbox: ${TARGET_NAME}, viewer is disabled.")
@@ -221,6 +232,10 @@ if(MYVOXEL_BUILD_SANDBOX)
         if(VIEWER_TARGET_INDEX GREATER -1)
             target_link_libraries(${TARGET_NAME} PRIVATE
                 MyVoxel::Viewer
+            )
+        elseif(STATISTICS_TARGET_INDEX GREATER -1)
+            target_link_libraries(${TARGET_NAME} PRIVATE
+                MyVoxelTest
             )
         else()
             target_link_libraries(${TARGET_NAME} PRIVATE

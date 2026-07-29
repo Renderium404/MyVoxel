@@ -1,0 +1,59 @@
+#ifndef MYVOXEL_GEOMETRY_BOXGEOMETRY_H
+#define MYVOXEL_GEOMETRY_BOXGEOMETRY_H
+
+#include "../ShapeGeometry.h"
+
+namespace MyVoxel
+{
+namespace Geometry
+{
+
+// 表示以局部原点为中心并与局部坐标轴平行的标准长方体。
+class BoxGeometry : public ShapeGeometry
+{
+public:
+    // 使用三个方向的完整尺寸创建标准长方体。
+    BoxGeometry(double sizeX, double sizeY, double sizeZ);
+
+    /// 几何参数
+
+    // 返回长方体X方向完整尺寸。
+    double sizeX() const;
+
+    // 返回长方体Y方向完整尺寸。
+    double sizeY() const;
+
+    // 返回长方体Z方向完整尺寸。
+    double sizeZ() const;
+
+    /// 几何属性
+
+    // 返回标准长方体类型。
+    ShapeKind kind() const override;
+
+    // 返回长方体局部轴对齐包围盒。
+    Bounds3 localBounds() const override;
+
+    /// 空间查询
+
+    // 判断指定局部坐标点是否位于长方体内部或边界上。
+    bool containsLocalPoint(const MyMath::Vector3& point) const override;
+
+    // 返回指定局部轴对齐包围盒与长方体之间的保守空间关系。
+    ShapeRelation classifyLocalBounds(const Bounds3& bounds) const override;
+
+protected:
+    // 通过侵入式引用计数管理标准长方体生命周期。
+    ~BoxGeometry() override = default;
+
+private:
+    double m_sizeX; // 长方体X方向完整尺寸。
+    double m_sizeY; // 长方体Y方向完整尺寸。
+    double m_sizeZ; // 长方体Z方向完整尺寸。
+    Bounds3 m_bounds; // 长方体局部轴对齐包围盒。
+};
+
+}
+}
+
+#endif // MYVOXEL_GEOMETRY_BOXGEOMETRY_H
