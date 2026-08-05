@@ -9,7 +9,7 @@
 namespace MyVoxel
 {
 
-// 定义无限稀疏体素网格的原点、基础边长和最高细分层级。
+// 定义无限稀疏体素的三维离散网格空间。
 // 用于三维坐标与三维离散坐标进行映射
 class VoxelGrid
 {
@@ -56,9 +56,9 @@ public:
     MyMath::Vector3 cellCorner(const VoxelCellAddress& address, VoxelCorner corner) const;
 
 private:
-    MyMath::Vector3 m_origin; // 第0层索引(0, 0, 0)体素的最小角点世界坐标。
-    double m_baseCellEdgeLength; // 第0层体素边长。
-    VoxelLevel m_maximumLevel; // 当前网格允许使用的最高细分层级。
+    MyMath::Vector3 m_origin;       // 第0层索引(0, 0, 0)体素的最小角点世界坐标。
+    double m_baseCellEdgeLength;    // 第0层体素边长。
+    VoxelLevel m_maximumLevel;      // 当前网格允许使用的最高细分层级。
 };
 
 }

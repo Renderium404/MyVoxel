@@ -850,31 +850,12 @@ void voxelizeQueryInto(const MyVoxel::Geometry::ShapeQuery& query,
 
     try
     {
-        collectRootVoxelizationItems(
-            query,
-            grid,
-            rootRange,
-            materialRootIndices,
-            intersectingItems,
-            recorder,
-            workspace);
-
-        executeIntersectingRoots<Recorder>(
-            query,
-            grid.maximumLevel(),
-            intersectingItems);
-
+        collectRootVoxelizationItems(query,grid,rootRange,materialRootIndices,intersectingItems,recorder,workspace);
+        executeIntersectingRoots<Recorder>(query,grid.maximumLevel(),intersectingItems);
         // 任意并行任务抛出异常时不会进入提交阶段，返回结果不会包含部分生成的根树。
         {
-            MyVoxel::VoxelShapeSession session =
-                result.session(MyVoxel::BaseVoxelLevel);
-
-            commitVoxelizationRoots(
-                session,
-                materialRootIndices,
-                intersectingItems,
-                recorder,
-                workspace);
+            MyVoxel::VoxelShapeSession session =result.session(MyVoxel::BaseVoxelLevel);
+            commitVoxelizationRoots(session,materialRootIndices,intersectingItems,recorder,workspace);
         }
     }
     catch (...)

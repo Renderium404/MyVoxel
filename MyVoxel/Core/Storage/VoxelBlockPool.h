@@ -27,15 +27,12 @@ public:
     VoxelBlockPool();
     // 禁止复制节点池。
     VoxelBlockPool(const VoxelBlockPool& other) = delete;
-
     // 禁止复制赋值节点池。
     VoxelBlockPool& operator=(const VoxelBlockPool& other) = delete;
-
     // 释放全部Chunk。
     ~VoxelBlockPool() override;
 
     /// 八槽组分配与回收
-
     // 分配八个连续且64字节对齐的物理槽，不初始化槽内节点类型。
     VoxelIndex allocateGroup();
     // 回收一个八槽组，不检查或递归释放其中记录的后代。
@@ -48,7 +45,6 @@ public:
     void clear();
 
     /// 物理槽初始化
-
     // 将指定物理槽初始化为普通节点块。
     VoxelNodeBlock& initializeNode(VoxelIndex index, VoxelNodeState childState = VoxelNodeState::Empty);
     // 将指定物理槽初始化为掩码叶块。
