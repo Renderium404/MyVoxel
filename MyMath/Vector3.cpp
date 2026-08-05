@@ -2,20 +2,8 @@
 
 #include <cassert>
 #include <cmath>
-#include <limits>
 
-namespace
-{
-
-// 判断浮点数是否为有限数值，不包含NaN和正负无穷。
-bool isFiniteValue(double value)
-{
-    const double infinity = std::numeric_limits<double>::infinity();
-
-    return value == value && value != infinity && value != -infinity;
-}
-
-}
+#include "MathUtils.h"
 
 namespace MyMath
 {
@@ -36,11 +24,11 @@ Vector3::Vector3(double x, double y, double z)
 {
 }
 
-/// 常用数据
+/// 数据创建
 
 Vector3 Vector3::zero()
 {
-    return Vector3(0.0, 0.0, 0.0);
+    return Vector3();
 }
 
 Vector3 Vector3::unitX()
@@ -101,17 +89,17 @@ void Vector3::set(double x, double y, double z)
 
 bool Vector3::isFinite() const
 {
-    return isFiniteValue(m_x) && isFiniteValue(m_y) && isFiniteValue(m_z);
+    return MyMath::isFinite(m_x) && MyMath::isFinite(m_y) && MyMath::isFinite(m_z);
 }
 
 bool Vector3::isVector(double epsilon) const
 {
-    return isFinite() && lengthSquared() > epsilon * epsilon;
+    return isFinite() && length() > epsilon;
 }
 
 bool Vector3::isZero(double epsilon) const
 {
-    return isFinite() && lengthSquared() <= epsilon * epsilon;
+    return isFinite() && length() <= epsilon;
 }
 
 bool Vector3::isUnit(double epsilon) const
@@ -121,7 +109,7 @@ bool Vector3::isUnit(double epsilon) const
 
 bool Vector3::isEqualTo(const Vector3& other, double epsilon) const
 {
-    return isFinite() && other.isFinite() && distanceSquaredTo(other) <= epsilon * epsilon;
+    return isFinite() && other.isFinite() && distanceTo(other) <= epsilon;
 }
 
 /// 长度与距离
@@ -133,7 +121,7 @@ double Vector3::lengthSquared() const
 
 double Vector3::length() const
 {
-    return std::sqrt(lengthSquared());
+    return MyMath::norm(m_x, m_y, m_z);
 }
 
 double Vector3::distanceSquaredTo(const Vector3& other) const
@@ -147,33 +135,61 @@ double Vector3::distanceSquaredTo(const Vector3& other) const
 
 double Vector3::distanceTo(const Vector3& other) const
 {
-    return std::sqrt(distanceSquaredTo(other));
+    return MyMath::norm(m_x - other.m_x, m_y - other.m_y, m_z - other.m_z);
 }
 
 /// 向量计算
 
 Vector3 Vector3::normalized(double epsilon) const
 {
-    if (!isVector(epsilon))
+    if (!isFinite())
     {
         return Vector3::zero();
     }
 
-    return *this / length();
+    const double scale = maximumAbsolute(m_x, m_y, m_z);
+
+    if (scale == 0.0)
+    {
+        return Vector3::zero();
+    }
+
+    const double normalizedLength = scaledNorm(m_x, m_y, m_z, scale);
+
+    if (scale <= epsilon / normalizedLength)
+    {
+        return Vector3::zero();
+    }
+
+    return Vector3(m_x / scale / normalizedLength,
+                   m_y / scale / normalizedLength,
+                   m_z / scale / normalizedLength);
 }
 
 bool Vector3::normalize(double epsilon)
 {
-    if (!isVector(epsilon))
+    if (!isFinite())
     {
         return false;
     }
 
-    const double vectorLength = length();
+    const double scale = maximumAbsolute(m_x, m_y, m_z);
 
-    m_x /= vectorLength;
-    m_y /= vectorLength;
-    m_z /= vectorLength;
+    if (scale == 0.0)
+    {
+        return false;
+    }
+
+    const double normalizedLength = scaledNorm(m_x, m_y, m_z, scale);
+
+    if (scale <= epsilon / normalizedLength)
+    {
+        return false;
+    }
+
+    m_x = m_x / scale / normalizedLength;
+    m_y = m_y / scale / normalizedLength;
+    m_z = m_z / scale / normalizedLength;
 
     return true;
 }
@@ -215,7 +231,6 @@ Vector3 Vector3::operator*(double scalar) const
 Vector3 Vector3::operator/(double scalar) const
 {
     assert(scalar != 0.0);
-
     return Vector3(m_x / scalar, m_y / scalar, m_z / scalar);
 }
 
@@ -224,7 +239,6 @@ Vector3& Vector3::operator+=(const Vector3& other)
     m_x += other.m_x;
     m_y += other.m_y;
     m_z += other.m_z;
-
     return *this;
 }
 
@@ -233,7 +247,6 @@ Vector3& Vector3::operator-=(const Vector3& other)
     m_x -= other.m_x;
     m_y -= other.m_y;
     m_z -= other.m_z;
-
     return *this;
 }
 
@@ -242,7 +255,6 @@ Vector3& Vector3::operator*=(double scalar)
     m_x *= scalar;
     m_y *= scalar;
     m_z *= scalar;
-
     return *this;
 }
 

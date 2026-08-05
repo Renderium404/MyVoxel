@@ -1,6 +1,7 @@
 #include "SphereGeometry.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include "MyVoxel/Foundation/Diagnostic.h"
@@ -14,6 +15,7 @@ bool isFinitePositive(double value)
     const double infinity = std::numeric_limits<double>::infinity();
     return value == value && value != infinity && value != -infinity && value > 0.0;
 }
+
 
 // 返回坐标原点到闭区间的最短距离。
 double distanceToInterval(double minimum, double maximum)
@@ -31,8 +33,8 @@ double distanceToInterval(double minimum, double maximum)
     return 0.0;
 }
 
-// 返回坐标原点到闭区间端点的最大绝对距离。
-double maximumDistanceToInterval(double minimum, double maximum)
+// 返回坐标原点到闭区间端点的最大距离平方。
+double maximumSquaredDistanceToInterval(double minimum, double maximum)
 {
     return (std::max)(minimum * minimum, maximum * maximum);
 }
@@ -71,7 +73,7 @@ Bounds3 SphereGeometry::localBounds() const
     return m_bounds;
 }
 
-/// 空间查询
+/// 标准空间查询
 
 bool SphereGeometry::containsLocalPoint(const MyMath::Vector3& point) const
 {
@@ -99,9 +101,9 @@ ShapeRelation SphereGeometry::classifyLocalBounds(const Bounds3& bounds) const
     }
 
     const double maximumDistanceSquared =
-        maximumDistanceToInterval(minimum.x(), maximum.x()) +
-        maximumDistanceToInterval(minimum.y(), maximum.y()) +
-        maximumDistanceToInterval(minimum.z(), maximum.z());
+        maximumSquaredDistanceToInterval(minimum.x(), maximum.x()) +
+        maximumSquaredDistanceToInterval(minimum.y(), maximum.y()) +
+        maximumSquaredDistanceToInterval(minimum.z(), maximum.z());
 
     if (maximumDistanceSquared < m_radiusSquared)
     {

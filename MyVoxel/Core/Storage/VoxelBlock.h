@@ -24,15 +24,15 @@ namespace MyVoxel
 // storageMask位为0时，对应子节点状态完全保存在两个掩码中，不访问物理存储槽。
 struct VoxelNodeBlock
 {
-    std::uint8_t storageMask = 0; // 各子节点是否占用对应物理存储槽。
-    std::uint8_t leafMask = 0; // 与storageMask组合表示各子节点的四种状态。
-    std::uint16_t userData = 0; // 预留给上层模块使用的节点数据。
-    VoxelIndex firstChildIndex = InvalidVoxelIndex; // 八个连续子节点槽的首索引。
+    std::uint8_t storageMask;           // 各子节点是否占用对应物理存储槽。
+    std::uint8_t leafMask;              // 与storageMask组合表示各子节点的四种状态。
+    std::uint16_t reserved;             // 保留字段。
+    VoxelIndex firstChildIndex;         // 八个连续子节点槽的首索引。
 };
 
 static_assert(sizeof(VoxelNodeBlock) == 8, "VoxelNodeBlock must be exactly 8 bytes.");
 
-// 使用一个64位掩码保存连续两层共4×4×4个最高层体素的材料状态。
+// 使用一个64位掩码保存连续两层共4×4×4个细层体素的材料状态。
 //
 // 64位掩码按粗层角点划分为八组，每组包含对应粗层体素的八个细层体素：
 //
@@ -48,10 +48,10 @@ static_assert(sizeof(VoxelNodeBlock) == 8, "VoxelNodeBlock must be exactly 8 byt
 //
 // 每组内部仍按照VoxelCorner数值排列，第0位为Minimum，第7位为MaximumXYZ。
 // 位为1表示材料存在，位为0表示材料不存在。
-// 任意最高层体素对应的位索引为coarseCorner×8+fineCorner。
+// 任意细层体素对应的位索引为coarseCorner×8+fineCorner。
 struct VoxelLeafBlock
 {
-    std::uint64_t materialMask = 0; // 两级角点按coarseCorner×8+fineCorner映射到64位材料状态。
+    std::uint64_t materialMask; // 两级角点按coarseCorner×8+fineCorner映射到64位材料状态。
 };
 
 static_assert(sizeof(VoxelLeafBlock) == 8, "VoxelLeafBlock must be exactly 8 bytes.");
@@ -63,25 +63,26 @@ union VoxelBlock
         : rawValue(0)
     {
     }
-    std::uint64_t rawValue;         // 原始八字节数据。
-    VoxelNodeBlock nodeBlock;       // 普通分支节点数据。
-    VoxelLeafBlock leafBlock;       // 掩码叶节点数据。
+
+    std::uint64_t   rawValue; // 原始八字节数据。
+    VoxelNodeBlock nodeBlock; // 普通分支节点数据。
+    VoxelLeafBlock leafBlock; // 掩码叶节点数据。
 };
 static_assert(sizeof(VoxelBlock) == 8, "VoxelBlock must be exactly 8 bytes.");
 /// 块初始化
 
 // 将普通节点块的八个子节点统一设置为空或材料状态。
-inline void reset(VoxelNodeBlock& block, VoxelState childState = VoxelState::Empty)
+inline void reset(VoxelNodeBlock& block, VoxelNodeState childState = VoxelNodeState::Empty)
 {
-    assert(childState == VoxelState::Empty || childState == VoxelState::Material);
+    assert(childState == VoxelNodeState::Empty || childState == VoxelNodeState::Material);
 
     block.storageMask = 0;
-    block.leafMask = childState == VoxelState::Material ? static_cast<std::uint8_t>(0xFFU) : static_cast<std::uint8_t>(0);
-    block.userData = 0;
+    block.leafMask = childState == VoxelNodeState::Material ? static_cast<std::uint8_t>(0xFFU) : static_cast<std::uint8_t>(0);
+    block.reserved = 0;
     block.firstChildIndex = InvalidVoxelIndex;
 }
 
-// 将掩码叶块中的64个最高层体素统一设置为空或材料状态。
+// 将掩码叶块中的64个细层体素统一设置为空或材料状态。
 inline void reset(VoxelLeafBlock& block, VoxelState state = VoxelState::Empty)
 {
     assert(state == VoxelState::Empty || state == VoxelState::Material);
@@ -170,13 +171,13 @@ inline void setMaskBit(std::uint64_t& mask, VoxelCorner coarseCorner, VoxelCorne
 
 /// 普通节点状态操作
 
-// 返回普通节点块中指定角点记录的子节点状态。
-inline VoxelState childState(const VoxelNodeBlock& block, VoxelCorner corner)
+// 返回普通节点块中指定角点记录的子节点存储状态。
+inline VoxelNodeState nodeState(const VoxelNodeBlock& block, VoxelCorner corner)
 {
     const std::uint8_t storageValue = maskBit(block.storageMask, corner) ? static_cast<std::uint8_t>(2) : static_cast<std::uint8_t>(0);
     const std::uint8_t leafValue = maskBit(block.leafMask, corner) ? static_cast<std::uint8_t>(1) : static_cast<std::uint8_t>(0);
 
-    return static_cast<VoxelState>(storageValue | leafValue);
+    return static_cast<VoxelNodeState>(storageValue | leafValue);
 }
 
 // 返回指定角点是否占用物理存储槽。

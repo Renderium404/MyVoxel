@@ -3,7 +3,6 @@
 #include <cassert>
 #include <cstdlib>
 #include <new>
-#include <utility>
 
 #ifdef _MSC_VER
 #include <malloc.h>
@@ -38,16 +37,18 @@ void releaseAlignedMemory(void* memory)
 namespace MyVoxel
 {
 
-const VoxelIndex VoxelBlockPool::ChildrenPerGroup;
-const std::size_t VoxelBlockPool::CacheLineAlignment;
+const VoxelIndex VoxelBlockPool::SlotsPerGroup;
+const std::size_t VoxelBlockPool::GroupAlignment;
 const VoxelIndex VoxelBlockPool::GroupsPerChunk;
 const VoxelIndex VoxelBlockPool::SlotsPerChunk;
 
 VoxelBlockPool::VoxelBlockPool()
     : m_nextSlotIndex(0)
+    , m_highWaterSlotCount(0)
     , m_allocatedGroupCount(0)
 {
 }
+
 VoxelBlockPool::~VoxelBlockPool()
 {
     clear();
@@ -55,14 +56,16 @@ VoxelBlockPool::~VoxelBlockPool()
 
 /// 八槽组分配与回收
 
-VoxelIndex VoxelBlockPool::allocateChildren()
+VoxelIndex VoxelBlockPool::allocateGroup()
 {
-    VoxelIndex firstChildIndex = InvalidVoxelIndex;
+    VoxelIndex firstSlotIndex = InvalidVoxelIndex;
+    bool reusedReleasedGroup = false;
 
-    if (!m_freeFirstChildIndexes.empty())
+    if (!m_freeGroupFirstSlotIndexes.empty())
     {
-        firstChildIndex = m_freeFirstChildIndexes.back();
-        m_freeFirstChildIndexes.pop_back();
+        firstSlotIndex = m_freeGroupFirstSlotIndexes.back();
+        m_freeGroupFirstSlotIndexes.pop_back();
+        reusedReleasedGroup = true;
     }
     else
     {
@@ -75,42 +78,61 @@ VoxelIndex VoxelBlockPool::allocateChildren()
             allocateChunk();
         }
 
-        if (m_nextSlotIndex > InvalidVoxelIndex - ChildrenPerGroup)
+        if (m_nextSlotIndex > InvalidVoxelIndex - SlotsPerGroup)
         {
             throw std::bad_alloc();
         }
 
-        firstChildIndex = m_nextSlotIndex;
-        m_nextSlotIndex += ChildrenPerGroup;
+        firstSlotIndex = m_nextSlotIndex;
+        m_nextSlotIndex += SlotsPerGroup;
+
+        if (m_nextSlotIndex > m_highWaterSlotCount)
+        {
+            m_highWaterSlotCount = m_nextSlotIndex;
+        }
     }
 
-    assert(firstChildIndex >= 0);
-    assert(firstChildIndex != InvalidVoxelIndex);
-    assert((firstChildIndex % ChildrenPerGroup) == 0);
+    assert(firstSlotIndex >= 0);
+    assert(firstSlotIndex != InvalidVoxelIndex);
+    assert((firstSlotIndex % SlotsPerGroup) == 0);
 
-    const std::size_t groupIndex = static_cast<std::size_t>(firstChildIndex / ChildrenPerGroup);
+    const std::size_t groupIndex = static_cast<std::size_t>(firstSlotIndex / SlotsPerGroup);
 
     assert(groupIndex < m_groupAllocated.size());
-    assert(m_groupAllocated[groupIndex] == 0);
 
+    // 空闲栈只保存当前分配轮次内明确释放的节点组，其分配标记必须已经清零。
+    if (reusedReleasedGroup)
+    {
+        assert(m_groupAllocated[groupIndex] == 0);
+    }
+
+    // 顺序分配可能覆盖上一轮遗留标记，因此直接写入当前轮次状态。
     m_groupAllocated[groupIndex] = 1;
     ++m_allocatedGroupCount;
 
-    assert(isChildrenAddressAligned(firstChildIndex));
-    return firstChildIndex;
+    assert(isGroupAligned(firstSlotIndex));
+    return firstSlotIndex;
 }
 
-void VoxelBlockPool::releaseChildren(VoxelIndex firstChildIndex)
+void VoxelBlockPool::releaseGroup(VoxelIndex firstSlotIndex)
 {
-    assert(containsChildren(firstChildIndex));
+    assert(containsGroup(firstSlotIndex));
     assert(m_allocatedGroupCount > 0);
-    assert(m_freeFirstChildIndexes.size() < m_freeFirstChildIndexes.capacity());
+    assert(m_freeGroupFirstSlotIndexes.size() < m_freeGroupFirstSlotIndexes.capacity());
 
-    const std::size_t groupIndex = static_cast<std::size_t>(firstChildIndex / ChildrenPerGroup);
+    const std::size_t groupIndex = static_cast<std::size_t>(firstSlotIndex / SlotsPerGroup);
 
-    m_freeFirstChildIndexes.push_back(firstChildIndex);
+    m_freeGroupFirstSlotIndexes.push_back(firstSlotIndex);
     m_groupAllocated[groupIndex] = 0;
     --m_allocatedGroupCount;
+}
+
+void VoxelBlockPool::rewind()
+{
+
+    m_freeGroupFirstSlotIndexes.clear();
+    m_nextSlotIndex = 0;
+    m_allocatedGroupCount = 0;
 }
 
 void VoxelBlockPool::clear()
@@ -121,18 +143,19 @@ void VoxelBlockPool::clear()
     }
 
     m_chunks.clear();
-    m_freeFirstChildIndexes.clear();
+    m_freeGroupFirstSlotIndexes.clear();
     m_groupAllocated.clear();
     m_nextSlotIndex = 0;
+    m_highWaterSlotCount = 0;
     m_allocatedGroupCount = 0;
 }
 
 /// 物理槽初始化
 
-VoxelNodeBlock& VoxelBlockPool::initializeNode(VoxelIndex index, VoxelState childState)
+VoxelNodeBlock& VoxelBlockPool::initializeNode(VoxelIndex index, VoxelNodeState childState)
 {
     assert(containsSlot(index));
-    assert(childState == VoxelState::Empty || childState == VoxelState::Material);
+    assert(childState == VoxelNodeState::Empty || childState == VoxelNodeState::Material);
 
     VoxelBlock& storageSlot = slotUnchecked(index);
     VoxelNodeBlock* block = new (&storageSlot.nodeBlock) VoxelNodeBlock;
@@ -155,19 +178,19 @@ VoxelLeafBlock& VoxelBlockPool::initializeLeaf(VoxelIndex index, VoxelState stat
 
 /// 存储检查
 
-bool VoxelBlockPool::containsChildren(VoxelIndex firstChildIndex) const
+bool VoxelBlockPool::containsGroup(VoxelIndex firstSlotIndex) const
 {
-    if (firstChildIndex < 0 || firstChildIndex == InvalidVoxelIndex)
+    if (firstSlotIndex < 0 || firstSlotIndex == InvalidVoxelIndex)
     {
         return false;
     }
 
-    if ((firstChildIndex % ChildrenPerGroup) != 0 || firstChildIndex >= m_nextSlotIndex)
+    if ((firstSlotIndex % SlotsPerGroup) != 0 || firstSlotIndex >= m_nextSlotIndex)
     {
         return false;
     }
 
-    const std::size_t groupIndex = static_cast<std::size_t>(firstChildIndex / ChildrenPerGroup);
+    const std::size_t groupIndex = static_cast<std::size_t>(firstSlotIndex / SlotsPerGroup);
     return groupIndex < m_groupAllocated.size() && m_groupAllocated[groupIndex] != 0;
 }
 
@@ -178,19 +201,19 @@ bool VoxelBlockPool::containsSlot(VoxelIndex index) const
         return false;
     }
 
-    const VoxelIndex firstChildIndex = index - index % ChildrenPerGroup;
-    return containsChildren(firstChildIndex);
+    const VoxelIndex firstSlotIndex = index - index % SlotsPerGroup;
+    return containsGroup(firstSlotIndex);
 }
 
-bool VoxelBlockPool::isChildrenAddressAligned(VoxelIndex firstChildIndex) const
+bool VoxelBlockPool::isGroupAligned(VoxelIndex firstSlotIndex) const
 {
-    if (!containsChildren(firstChildIndex))
+    if (!containsGroup(firstSlotIndex))
     {
         return false;
     }
 
-    const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&slotUnchecked(firstChildIndex));
-    return address % static_cast<std::uintptr_t>(CacheLineAlignment) == 0;
+    const std::uintptr_t address = reinterpret_cast<std::uintptr_t>(&slotUnchecked(firstSlotIndex));
+    return address % static_cast<std::uintptr_t>(GroupAlignment) == 0;
 }
 
 /// 存储统计
@@ -200,9 +223,9 @@ std::size_t VoxelBlockPool::allocatedGroupCount() const
     return m_allocatedGroupCount;
 }
 
-std::size_t VoxelBlockPool::storageGroupCount() const
+std::size_t VoxelBlockPool::highWaterGroupCount() const
 {
-    return static_cast<std::size_t>(m_nextSlotIndex / ChildrenPerGroup);
+    return static_cast<std::size_t>(m_highWaterSlotCount / SlotsPerGroup);
 }
 
 std::size_t VoxelBlockPool::chunkCount() const
@@ -216,7 +239,6 @@ std::size_t VoxelBlockPool::capacitySlotCount() const
 }
 
 /// 内部辅助
-
 
 void VoxelBlockPool::allocateChunk()
 {
@@ -232,11 +254,11 @@ void VoxelBlockPool::allocateChunk()
     const std::size_t nextGroupCount = m_groupAllocated.size() + static_cast<std::size_t>(GroupsPerChunk);
 
     m_chunks.reserve(nextChunkCount);
-    m_freeFirstChildIndexes.reserve(nextGroupCount);
+    m_freeGroupFirstSlotIndexes.reserve(nextGroupCount);
     m_groupAllocated.reserve(nextGroupCount);
 
     const std::size_t byteCount = sizeof(VoxelBlock) * static_cast<std::size_t>(SlotsPerChunk);
-    VoxelBlock* chunk = static_cast<VoxelBlock*>(allocateAlignedMemory(byteCount, CacheLineAlignment));
+    VoxelBlock* chunk = static_cast<VoxelBlock*>(allocateAlignedMemory(byteCount, GroupAlignment));
 
     if (!chunk)
     {
@@ -253,7 +275,7 @@ void VoxelBlockPool::allocateChunk()
         throw;
     }
 
-    assert(reinterpret_cast<std::uintptr_t>(chunk) % static_cast<std::uintptr_t>(CacheLineAlignment) == 0);
+    assert(reinterpret_cast<std::uintptr_t>(chunk) % static_cast<std::uintptr_t>(GroupAlignment) == 0);
 
     for (VoxelIndex slotIndex = 0; slotIndex < SlotsPerChunk; ++slotIndex)
     {
@@ -262,4 +284,5 @@ void VoxelBlockPool::allocateChunk()
 
     m_chunks.push_back(chunk);
 }
+
 }

@@ -1,31 +1,75 @@
 #include "VoxelTreeEditor.h"
 
-#include <cassert>
+#include "MyVoxel/Core/Mask/VoxelChildMask.h"
 
-#include "../../Foundation/Diagnostic.h"
-#include "../../Foundation/RefPtr.h"
-
-namespace MyVoxel
-{
+#include "MyVoxel/Core/Mask/VoxelLeafMask.h"
+#include "MyVoxel/Core/Mask/VoxelNodeMask.h"
+#include "MyVoxel/Foundation/Diagnostic.h"
 
 namespace
 {
 
-// 将终止逻辑状态转换为普通节点掩码状态。
-VoxelState terminalVoxelState(VoxelTreeState state)
+// 将终止逻辑状态转换为普通节点存储状态。
+MyVoxel::VoxelNodeState terminalNodeState(MyVoxel::VoxelState state)
 {
-    MYVOXEL_ASSERT(state == VoxelTreeState::Empty || state == VoxelTreeState::Material);
-    return state == VoxelTreeState::Material ? VoxelState::Material : VoxelState::Empty;
+    MYVOXEL_ASSERT(state == MyVoxel::VoxelState::Empty ||
+                   state == MyVoxel::VoxelState::Material);
+
+    return state == MyVoxel::VoxelState::Material
+               ? MyVoxel::VoxelNodeState::Material
+               : MyVoxel::VoxelNodeState::Empty;
 }
 
-// 将终止逻辑状态转换为根节点状态。
-VoxelRootState terminalRootState(VoxelTreeState state)
+// 递归释放一个普通节点块记录的全部物理后代。
+void releaseDescendants(MyVoxel::VoxelNodeBlock& block, MyVoxel::VoxelBlockPool& pool)
 {
-    MYVOXEL_ASSERT(state == VoxelTreeState::Empty || state == VoxelTreeState::Material);
-    return state == VoxelTreeState::Material ? VoxelRootState::Material : VoxelRootState::Empty;
+    if (block.storageMask == 0)
+    {
+        MYVOXEL_ASSERT(block.firstChildIndex == MyVoxel::InvalidVoxelIndex);
+        return;
+    }
+
+    MYVOXEL_ASSERT(block.firstChildIndex != MyVoxel::InvalidVoxelIndex);
+    MYVOXEL_ASSERT(pool.containsGroup(block.firstChildIndex));
+
+    const MyVoxel::VoxelIndex firstChildIndex = block.firstChildIndex;
+
+    for (unsigned int cornerIndex = 0;
+         cornerIndex < static_cast<unsigned int>(MyVoxel::VoxelCornerCount);
+         ++cornerIndex)
+    {
+        const MyVoxel::VoxelCorner corner =
+            static_cast<MyVoxel::VoxelCorner>(cornerIndex);
+
+        if (!MyVoxel::hasChildStorage(block, corner))
+        {
+            continue;
+        }
+
+        const MyVoxel::VoxelNodeState state =
+            MyVoxel::nodeState(block, corner);
+
+        if (state == MyVoxel::VoxelNodeState::Branch)
+        {
+            const MyVoxel::VoxelIndex index =
+                MyVoxel::childStorageIndex(block, corner);
+
+            releaseDescendants(pool.node(index), pool);
+            continue;
+        }
+
+        MYVOXEL_ASSERT(state == MyVoxel::VoxelNodeState::MaskLeaf);
+    }
+
+    pool.releaseGroup(firstChildIndex);
+    block.storageMask = 0;
+    block.firstChildIndex = MyVoxel::InvalidVoxelIndex;
 }
 
 }
+
+namespace MyVoxel
+{
 
 VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree)
     : m_tree(&tree)
@@ -35,12 +79,16 @@ VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree)
     , m_coarseCorner(VoxelCorner::Minimum)
     , m_source(Source::Root)
 {
-    MYVOXEL_REQUIRE_MESSAGE(tree.isValid(), "Cannot create VoxelTreeEditor for an invalid VoxelTree.");
-    detachPool(tree);
+    MYVOXEL_ASSERT(tree.isValid());
+
+    tree.ensureUniqueStorage();
+
     MYVOXEL_ASSERT(tree.isValid());
 }
 
-VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree, VoxelNodeBlock& parentBlock, VoxelCorner childCorner)
+VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree,
+                                 VoxelNodeBlock& parentBlock,
+                                 VoxelCorner childCorner)
     : m_tree(&tree)
     , m_parentBlock(&parentBlock)
     , m_leafBlock(nullptr)
@@ -51,7 +99,9 @@ VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree, VoxelNodeBlock& parentBlock, V
     cornerBit(childCorner);
 }
 
-VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree, VoxelLeafBlock& leafBlock, VoxelCorner coarseCorner)
+VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree,
+                                 VoxelLeafBlock& leafBlock,
+                                 VoxelCorner coarseCorner)
     : m_tree(&tree)
     , m_parentBlock(nullptr)
     , m_leafBlock(&leafBlock)
@@ -62,7 +112,10 @@ VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree, VoxelLeafBlock& leafBlock, Vox
     cornerBit(coarseCorner);
 }
 
-VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree, VoxelLeafBlock& leafBlock, VoxelCorner coarseCorner, VoxelCorner fineCorner)
+VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree,
+                                 VoxelLeafBlock& leafBlock,
+                                 VoxelCorner coarseCorner,
+                                 VoxelCorner fineCorner)
     : m_tree(&tree)
     , m_parentBlock(nullptr)
     , m_leafBlock(&leafBlock)
@@ -74,545 +127,624 @@ VoxelTreeEditor::VoxelTreeEditor(VoxelTree& tree, VoxelLeafBlock& leafBlock, Vox
     cornerBit(fineCorner);
 }
 
-/// 节点状态
+/// 体素状态
 
-VoxelTreeState VoxelTreeEditor::state() const
+VoxelState VoxelTreeEditor::state() const
 {
     MYVOXEL_ASSERT(m_tree);
 
     switch (m_source)
     {
     case Source::Root:
-        return m_tree->rootState;
+        return m_tree->m_rootState;
 
     case Source::NodeChild:
-    {
-        const VoxelState currentState = nodeChildState();
-
-        if (currentState == VoxelState::Empty)
-        {
-            return VoxelTreeState::Empty;
-        }
-
-        if (currentState == VoxelState::Material)
-        {
-            return VoxelTreeState::Material;
-        }
-
-        return VoxelTreeState::Subdivided;
-    }
+        return voxelState(nodeChildState());
 
     case Source::MaskLeafGroup:
-    {
         MYVOXEL_ASSERT(m_leafBlock);
-
-        const std::uint8_t groupMask = maskBits(m_leafBlock->materialMask, m_coarseCorner);
-
-        if (groupMask == static_cast<std::uint8_t>(0))
-        {
-            return VoxelTreeState::Empty;
-        }
-
-        if (groupMask == static_cast<std::uint8_t>(0xFFU))
-        {
-            return VoxelTreeState::Material;
-        }
-
-        return VoxelTreeState::Subdivided;
-    }
+        return leafGroupState(*m_leafBlock, m_coarseCorner);
 
     case Source::MaskLeafVoxel:
         MYVOXEL_ASSERT(m_leafBlock);
-        return maskBit(m_leafBlock->materialMask, m_coarseCorner, m_childCorner) ? VoxelTreeState::Material : VoxelTreeState::Empty;
+
+        return maskBit(m_leafBlock->materialMask, m_coarseCorner, m_childCorner)
+                   ? VoxelState::Material
+                   : VoxelState::Empty;
     }
 
     MYVOXEL_ASSERT_MESSAGE(false, "Unknown VoxelTreeEditor source.");
-    return VoxelTreeState::Empty;
+    return VoxelState::Empty;
 }
 
-bool VoxelTreeEditor::isEmpty() const
-{
-    return state() == VoxelTreeState::Empty;
-}
 
-bool VoxelTreeEditor::isMaterial() const
-{
-    return state() == VoxelTreeState::Material;
-}
 
-bool VoxelTreeEditor::isSubdivided() const
-{
-    return state() == VoxelTreeState::Subdivided;
-}
+/// 子体素读取
 
-bool VoxelTreeEditor::isTerminal() const
+VoxelChildStateMasks VoxelTreeEditor::childStateMasks() const
 {
-    return state() != VoxelTreeState::Subdivided;
-}
+    MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
+    MYVOXEL_ASSERT(m_source != Source::MaskLeafVoxel);
 
-bool VoxelTreeEditor::canAccessChildren() const
-{
-    if (m_source == Source::MaskLeafGroup)
+    switch (m_source)
     {
-        return true;
+    case Source::Root:
+        if (m_tree->m_rootState == VoxelState::Empty ||
+            m_tree->m_rootState == VoxelState::Material)
+        {
+            return uniformChildStateMasks(m_tree->m_rootState);
+        }
+
+        return nodeChildStateMasks(m_tree->m_rootBlock);
+
+    case Source::NodeChild:
+    {
+        const VoxelNodeState state = nodeChildState();
+
+        if (state == VoxelNodeState::Empty ||
+            state == VoxelNodeState::Material)
+        {
+            return uniformChildStateMasks(voxelState(state));
+        }
+
+        if (state == VoxelNodeState::Branch)
+        {
+            return nodeChildStateMasks(currentNodeBlock());
+        }
+
+        MYVOXEL_ASSERT(state == VoxelNodeState::MaskLeaf);
+        return leafChildStateMasks(currentLeafBlock());
     }
 
-    return state() == VoxelTreeState::Subdivided;
+    case Source::MaskLeafGroup:
+        MYVOXEL_ASSERT(m_leafBlock);
+        return leafGroupChildStateMasks(*m_leafBlock, m_coarseCorner);
+
+    case Source::MaskLeafVoxel:
+        break;
+    }
+
+    MYVOXEL_ASSERT_MESSAGE(false, "A mask-leaf fine voxel has no child state mask.");
+    return uniformChildStateMasks(VoxelState::Empty);
 }
 
-/// 状态修改
+/// 体素修改
 
 void VoxelTreeEditor::setEmpty()
 {
-    setTerminalState(VoxelTreeState::Empty);
+    setTerminal(VoxelState::Empty);
 }
 
 void VoxelTreeEditor::setMaterial()
 {
-    setTerminalState(VoxelTreeState::Material);
+    setTerminal(VoxelState::Material);
 }
 
-void VoxelTreeEditor::setState(VoxelTreeState newState)
-{
-    switch (newState)
-    {
-    case VoxelTreeState::Empty:
-        setEmpty();
-        return;
-
-    case VoxelTreeState::Material:
-        setMaterial();
-        return;
-
-    case VoxelTreeState::Subdivided:
-        subdivide();
-        return;
-    }
-
-    MYVOXEL_REQUIRE_MESSAGE(false, "Unknown VoxelTreeState.");
-}
-
-void VoxelTreeEditor::subdivide()
+bool VoxelTreeEditor::subdivide()
 {
     MYVOXEL_ASSERT(m_tree);
-    VoxelBlockPool& pool = *m_tree->blockPool;
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
+
+    VoxelBlockPool& pool = *m_tree->m_blockPool;
 
     switch (m_source)
     {
     case Source::Root:
-    {
-        if (m_tree->rootState == VoxelRootState::Subdivided)
+        if (m_tree->m_rootState == VoxelState::Subdivided)
         {
-            return;
+            return false;
         }
 
-        const VoxelState inheritedState = m_tree->rootState == VoxelRootState::Material ? VoxelState::Material : VoxelState::Empty;
+        MyVoxel::reset(
+            m_tree->m_rootBlock,
+            terminalNodeState(m_tree->m_rootState));
 
-        reset(m_tree->rootBlock, inheritedState);
-        m_tree->rootState = VoxelRootState::Subdivided;
-        return;
-    }
+        m_tree->m_rootState = VoxelState::Subdivided;
+        return true;
 
     case Source::NodeChild:
     {
-        const VoxelState currentState = nodeChildState();
+        const VoxelNodeState state = nodeChildState();
 
-        if (currentState == VoxelState::Branch || currentState == VoxelState::MaskLeaf)
+        if (state == VoxelNodeState::Branch ||
+            state == VoxelNodeState::MaskLeaf)
         {
-            return;
+            return false;
         }
 
-        ensureParentStorage();
+        ensureParentGroup();
 
-        const VoxelIndex index = m_parentBlock->firstChildIndex + static_cast<VoxelIndex>(m_childCorner);
-        pool.initializeNode(index, currentState);
-        setNodeChildState(*m_parentBlock, m_childCorner, VoxelState::Branch);
-        return;
+        const VoxelIndex index =
+            m_parentBlock->firstChildIndex +
+            static_cast<VoxelIndex>(m_childCorner);
+
+        pool.initializeNode(index, state);
+        setNodeStateBits(*m_parentBlock, m_childCorner, VoxelNodeState::Branch);
+        return true;
     }
 
     case Source::MaskLeafGroup:
-        // 掩码叶块已经物理保存该粗层体素的八个最高层子体素。
-        return;
+        return false;
 
     case Source::MaskLeafVoxel:
-        MYVOXEL_REQUIRE_MESSAGE(false, "The highest-level voxel cannot be subdivided.");
-        return;
+        MYVOXEL_ASSERT_MESSAGE(false, "A mask-leaf fine voxel cannot be subdivided.");
+        return false;
     }
 
-    MYVOXEL_REQUIRE_MESSAGE(false, "Unknown VoxelTreeEditor source.");
+    MYVOXEL_ASSERT_MESSAGE(false, "Unknown VoxelTreeEditor source.");
+    return false;
 }
 
-void VoxelTreeEditor::subdivideAsMaskLeaf()
+bool VoxelTreeEditor::setChildrenState(std::uint8_t childMask, VoxelState newState)
 {
-    MYVOXEL_REQUIRE_MESSAGE(m_source == Source::NodeChild, "Only a normal node child can be converted to a mask leaf.");
+    MYVOXEL_ASSERT(newState == VoxelState::Empty ||
+                   newState == VoxelState::Material);
 
-    const VoxelState currentState = nodeChildState();
+    MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
+    MYVOXEL_ASSERT(m_source != Source::MaskLeafVoxel);
 
-    if (currentState == VoxelState::MaskLeaf)
+    if (childMask == EmptyVoxelNodeMask)
     {
-        return;
+        return false;
     }
 
-    MYVOXEL_REQUIRE_MESSAGE(currentState == VoxelState::Empty || currentState == VoxelState::Material,
-                            "A branch cannot be converted directly to a mask leaf.");
+    const VoxelChildStateMasks currentStates = childStateMasks();
 
-    ensureParentStorage();
+    const std::uint8_t changedMask =
+        static_cast<std::uint8_t>(
+            childMask &
+            static_cast<std::uint8_t>(
+                ~currentStates.stateMask(newState)));
 
-    VoxelBlockPool& pool = *m_tree->blockPool;
-    const VoxelIndex index = m_parentBlock->firstChildIndex + static_cast<VoxelIndex>(m_childCorner);
+    if (changedMask == EmptyVoxelNodeMask)
+    {
+        return false;
+    }
 
-    pool.initializeLeaf(index, currentState);
-    setNodeChildState(*m_parentBlock, m_childCorner, VoxelState::MaskLeaf);
+    switch (m_source)
+    {
+    case Source::Root:
+        subdivide();
+        return setNodeChildren(m_tree->m_rootBlock, changedMask, newState);
+
+    case Source::NodeChild:
+    {
+        VoxelNodeState state = nodeChildState();
+
+        if (state == VoxelNodeState::Empty ||
+            state == VoxelNodeState::Material)
+        {
+            subdivide();
+            state = nodeChildState();
+        }
+
+        if (state == VoxelNodeState::Branch)
+        {
+            return setNodeChildren(currentNodeBlock(), changedMask, newState);
+        }
+
+        MYVOXEL_ASSERT(state == VoxelNodeState::MaskLeaf);
+        return setLeafGroupStates(currentLeafBlock(), changedMask, newState);
+    }
+
+    case Source::MaskLeafGroup:
+    {
+        MYVOXEL_ASSERT(m_leafBlock);
+
+        const unsigned int offset = leafMaskOffset(m_coarseCorner);
+
+        const std::uint64_t materialMask =
+            static_cast<std::uint64_t>(changedMask) << offset;
+
+        return setLeafMaterialBits(
+            *m_leafBlock,
+            materialMask,
+            newState == VoxelState::Material);
+    }
+
+    case Source::MaskLeafVoxel:
+        break;
+    }
+
+    MYVOXEL_ASSERT_MESSAGE(false, "A mask-leaf fine voxel has no children to modify.");
+    return false;
 }
-
-/// 子节点访问
 
 VoxelTreeEditor VoxelTreeEditor::child(VoxelCorner corner)
 {
     cornerBit(corner);
+
     MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
 
     switch (m_source)
     {
     case Source::Root:
-        if (m_tree->rootState != VoxelRootState::Subdivided)
-        {
-            subdivide();
-        }
-
-        return VoxelTreeEditor(*m_tree, m_tree->rootBlock, corner);
+        subdivide();
+        return VoxelTreeEditor(*m_tree, m_tree->m_rootBlock, corner);
 
     case Source::NodeChild:
     {
-        VoxelState currentState = nodeChildState();
+        VoxelNodeState state = nodeChildState();
 
-        if (currentState == VoxelState::Empty || currentState == VoxelState::Material)
+        if (state == VoxelNodeState::Empty ||
+            state == VoxelNodeState::Material)
         {
             subdivide();
-            currentState = VoxelState::Branch;
+            state = nodeChildState();
         }
 
-        const VoxelIndex index = childStorageIndex(*m_parentBlock, m_childCorner);
+        MYVOXEL_ASSERT(state == VoxelNodeState::Branch ||
+                       state == VoxelNodeState::MaskLeaf);
 
-        if (currentState == VoxelState::Branch)
+        const VoxelIndex index =
+            childStorageIndex(*m_parentBlock, m_childCorner);
+
+        if (state == VoxelNodeState::Branch)
         {
-            return VoxelTreeEditor(*m_tree, m_tree->blockPool->node(index), corner);
+            return VoxelTreeEditor(
+                *m_tree,
+                m_tree->m_blockPool->node(index),
+                corner);
         }
 
-        MYVOXEL_ASSERT(currentState == VoxelState::MaskLeaf);
-        return VoxelTreeEditor(*m_tree, m_tree->blockPool->leaf(index), corner);
+        return VoxelTreeEditor(
+            *m_tree,
+            m_tree->m_blockPool->leaf(index),
+            corner);
     }
 
     case Source::MaskLeafGroup:
-        return VoxelTreeEditor(*m_tree, *m_leafBlock, m_coarseCorner, corner);
+        MYVOXEL_ASSERT(m_leafBlock);
+
+        return VoxelTreeEditor(
+            *m_tree,
+            *m_leafBlock,
+            m_coarseCorner,
+            corner);
 
     case Source::MaskLeafVoxel:
-        MYVOXEL_REQUIRE_MESSAGE(false, "The highest-level voxel has no children.");
-        break;
+        MYVOXEL_ASSERT_MESSAGE(false, "A mask-leaf fine voxel has no children.");
+        return *this;
     }
 
-    MYVOXEL_REQUIRE_MESSAGE(false, "Unknown VoxelTreeEditor source.");
-    return VoxelTreeEditor(*m_tree);
+    MYVOXEL_ASSERT_MESSAGE(false, "Unknown VoxelTreeEditor source.");
+    return *this;
 }
 
-/// 底层存储
+/// 压缩材料修改
 
-bool VoxelTreeEditor::usesNodeBlock() const
+
+bool VoxelTreeEditor::setMaterialMask(std::uint64_t materialMask)
 {
-    if (m_source == Source::Root)
+    MYVOXEL_ASSERT(canSetMaterialMask());
+    MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_parentBlock);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
+
+    if (materialMask == EmptyVoxelLeafMask)
     {
-        return m_tree->rootState == VoxelRootState::Subdivided;
+        const bool changed = !isEmpty();
+
+        if (changed)
+        {
+            setEmpty();
+        }
+
+        return changed;
     }
 
-    return m_source == Source::NodeChild && nodeChildState() == VoxelState::Branch;
-}
-
-bool VoxelTreeEditor::usesMaskLeaf() const
-{
-    if (m_source == Source::MaskLeafGroup || m_source == Source::MaskLeafVoxel)
+    if (materialMask == FullVoxelLeafMask)
     {
-        return true;
+        const bool changed = !isMaterial();
+
+        if (changed)
+        {
+            setMaterial();
+        }
+
+        return changed;
     }
 
-    return m_source == Source::NodeChild && nodeChildState() == VoxelState::MaskLeaf;
-}
+    const VoxelNodeState state = nodeChildState();
+    VoxelBlockPool& pool = *m_tree->m_blockPool;
 
-VoxelNodeBlock& VoxelTreeEditor::nodeBlock()
-{
-    MYVOXEL_REQUIRE_MESSAGE(usesNodeBlock(), "The current voxel does not use a VoxelNodeBlock.");
-    return currentNodeBlock();
-}
+    if (state == VoxelNodeState::MaskLeaf)
+    {
+        return setLeafMaterialMask(currentLeafBlock(), materialMask);
+    }
 
-VoxelLeafBlock& VoxelTreeEditor::maskLeaf()
-{
-    MYVOXEL_REQUIRE_MESSAGE(usesMaskLeaf(), "The current voxel does not use a VoxelLeafBlock.");
-    return currentLeafBlock();
+    VoxelIndex index = InvalidVoxelIndex;
+
+    if (state == VoxelNodeState::Branch)
+    {
+        index = childStorageIndex(*m_parentBlock, m_childCorner);
+        releaseDescendants(pool.node(index), pool);
+    }
+    else
+    {
+        MYVOXEL_ASSERT(state == VoxelNodeState::Empty ||
+                       state == VoxelNodeState::Material);
+
+        ensureParentGroup();
+
+        index =
+            m_parentBlock->firstChildIndex +
+            static_cast<VoxelIndex>(m_childCorner);
+    }
+
+    VoxelLeafBlock& leaf = pool.initializeLeaf(index);
+    leaf.materialMask = materialMask;
+
+    setNodeStateBits(
+        *m_parentBlock,
+        m_childCorner,
+        VoxelNodeState::MaskLeaf);
+
+    return true;
 }
 
 /// 内部辅助
 
-VoxelState VoxelTreeEditor::nodeChildState() const
+VoxelNodeState VoxelTreeEditor::nodeChildState() const
 {
     MYVOXEL_ASSERT(m_source == Source::NodeChild);
     MYVOXEL_ASSERT(m_parentBlock);
 
-    return childState(*m_parentBlock, m_childCorner);
+    return nodeState(*m_parentBlock, m_childCorner);
 }
 
-VoxelNodeBlock& VoxelTreeEditor::currentNodeBlock() const
+VoxelNodeBlock& VoxelTreeEditor::currentNodeBlock()
 {
     MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
 
     if (m_source == Source::Root)
     {
-        MYVOXEL_ASSERT(m_tree->rootState == VoxelRootState::Subdivided);
-        return m_tree->rootBlock;
+        MYVOXEL_ASSERT(m_tree->m_rootState == VoxelState::Subdivided);
+        return m_tree->m_rootBlock;
     }
 
     MYVOXEL_ASSERT(m_source == Source::NodeChild);
-    MYVOXEL_ASSERT(nodeChildState() == VoxelState::Branch);
+    MYVOXEL_ASSERT(nodeChildState() == VoxelNodeState::Branch);
 
-    const VoxelIndex index = childStorageIndex(*m_parentBlock, m_childCorner);
-    return m_tree->blockPool->node(index);
+    const VoxelIndex index =
+        childStorageIndex(*m_parentBlock, m_childCorner);
+
+    return m_tree->m_blockPool->node(index);
 }
 
-VoxelLeafBlock& VoxelTreeEditor::currentLeafBlock() const
+const VoxelNodeBlock& VoxelTreeEditor::currentNodeBlock() const
 {
     MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
 
-    if (m_source == Source::MaskLeafGroup || m_source == Source::MaskLeafVoxel)
+    if (m_source == Source::Root)
+    {
+        MYVOXEL_ASSERT(m_tree->m_rootState == VoxelState::Subdivided);
+        return m_tree->m_rootBlock;
+    }
+
+    MYVOXEL_ASSERT(m_source == Source::NodeChild);
+    MYVOXEL_ASSERT(nodeChildState() == VoxelNodeState::Branch);
+
+    const VoxelIndex index =
+        childStorageIndex(*m_parentBlock, m_childCorner);
+
+    const VoxelBlockPool& pool = *m_tree->m_blockPool;
+    return pool.node(index);
+}
+
+VoxelLeafBlock& VoxelTreeEditor::currentLeafBlock()
+{
+    MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
+
+    if (m_source == Source::MaskLeafGroup ||
+        m_source == Source::MaskLeafVoxel)
     {
         MYVOXEL_ASSERT(m_leafBlock);
         return *m_leafBlock;
     }
 
     MYVOXEL_ASSERT(m_source == Source::NodeChild);
-    MYVOXEL_ASSERT(nodeChildState() == VoxelState::MaskLeaf);
+    MYVOXEL_ASSERT(nodeChildState() == VoxelNodeState::MaskLeaf);
 
-    const VoxelIndex index = childStorageIndex(*m_parentBlock, m_childCorner);
-    return m_tree->blockPool->leaf(index);
+    const VoxelIndex index =
+        childStorageIndex(*m_parentBlock, m_childCorner);
+
+    return m_tree->m_blockPool->leaf(index);
 }
 
-void VoxelTreeEditor::setTerminalState(VoxelTreeState newState)
+const VoxelLeafBlock& VoxelTreeEditor::currentLeafBlock() const
 {
-    MYVOXEL_REQUIRE_MESSAGE(newState == VoxelTreeState::Empty || newState == VoxelTreeState::Material,
-                            "A terminal state must be Empty or Material.");
+    MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
+
+    if (m_source == Source::MaskLeafGroup ||
+        m_source == Source::MaskLeafVoxel)
+    {
+        MYVOXEL_ASSERT(m_leafBlock);
+        return *m_leafBlock;
+    }
+
+    MYVOXEL_ASSERT(m_source == Source::NodeChild);
+    MYVOXEL_ASSERT(nodeChildState() == VoxelNodeState::MaskLeaf);
+
+    const VoxelIndex index =
+        childStorageIndex(*m_parentBlock, m_childCorner);
+
+    const VoxelBlockPool& pool = *m_tree->m_blockPool;
+    return pool.leaf(index);
+}
+
+void VoxelTreeEditor::setTerminal(VoxelState newState)
+{
+    MYVOXEL_ASSERT(newState == VoxelState::Empty ||
+                   newState == VoxelState::Material);
 
     MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
 
-    const VoxelState targetState = terminalVoxelState(newState);
-    VoxelBlockPool& pool = *m_tree->blockPool;
+    if (state() == newState)
+    {
+        return;
+    }
+
+    const VoxelNodeState targetState = terminalNodeState(newState);
+    VoxelBlockPool& pool = *m_tree->m_blockPool;
 
     switch (m_source)
     {
     case Source::Root:
-        if (m_tree->rootState == VoxelRootState::Subdivided)
+        if (m_tree->m_rootState == VoxelState::Subdivided)
         {
-            releaseNodeChildren(m_tree->rootBlock, pool);
+            releaseDescendants(m_tree->m_rootBlock, pool);
         }
 
-        reset(m_tree->rootBlock, targetState);
-        m_tree->rootState = terminalRootState(newState);
+        MyVoxel::reset(m_tree->m_rootBlock, targetState);
+        m_tree->m_rootState = newState;
         return;
 
     case Source::NodeChild:
     {
-        const VoxelState currentState = nodeChildState();
+        const VoxelNodeState state = nodeChildState();
 
-        if (currentState == VoxelState::Branch)
+        if (state == VoxelNodeState::Branch)
         {
-            const VoxelIndex index = childStorageIndex(*m_parentBlock, m_childCorner);
-            releaseNodeChildren(pool.node(index), pool);
+            const VoxelIndex index =
+                childStorageIndex(*m_parentBlock, m_childCorner);
+
+            releaseDescendants(pool.node(index), pool);
         }
 
-        setNodeChildState(*m_parentBlock, m_childCorner, targetState);
-        releaseUnusedParentStorage();
+        setNodeStateBits(*m_parentBlock, m_childCorner, targetState);
+        releaseUnusedParentGroup();
         return;
     }
 
     case Source::MaskLeafGroup:
-        setLeafGroupMask(*m_leafBlock, m_coarseCorner,
-                         newState == VoxelTreeState::Material ? static_cast<std::uint8_t>(0xFFU) : static_cast<std::uint8_t>(0));
+        MYVOXEL_ASSERT(m_leafBlock);
+        setLeafGroupState(*m_leafBlock, m_coarseCorner, newState);
         return;
 
     case Source::MaskLeafVoxel:
-        setMaskBit(m_leafBlock->materialMask, m_coarseCorner, m_childCorner, newState == VoxelTreeState::Material);
+        MYVOXEL_ASSERT(m_leafBlock);
+
+        setMaskBit(
+            m_leafBlock->materialMask,
+            m_coarseCorner,
+            m_childCorner,
+            newState == VoxelState::Material);
+
         return;
     }
 
-    MYVOXEL_REQUIRE_MESSAGE(false, "Unknown VoxelTreeEditor source.");
+    MYVOXEL_ASSERT_MESSAGE(false, "Unknown VoxelTreeEditor source.");
 }
 
-void VoxelTreeEditor::ensureParentStorage()
+bool VoxelTreeEditor::setNodeChildren(VoxelNodeBlock& block,
+                                      std::uint8_t childMask,
+                                      VoxelState newState)
+{
+    MYVOXEL_ASSERT(newState == VoxelState::Empty ||
+                   newState == VoxelState::Material);
+
+    MYVOXEL_ASSERT(m_tree);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
+
+    const VoxelNodeState targetState = terminalNodeState(newState);
+
+    const std::uint8_t changedMask =
+        static_cast<std::uint8_t>(
+            childMask &
+            static_cast<std::uint8_t>(
+                ~nodeStateMask(block, targetState)));
+
+    if (changedMask == EmptyVoxelNodeMask)
+    {
+        return false;
+    }
+
+    VoxelBlockPool& pool = *m_tree->m_blockPool;
+
+    std::uint8_t storageMask =
+        static_cast<std::uint8_t>(
+            block.storageMask & changedMask);
+
+    while (storageMask != EmptyVoxelNodeMask)
+    {
+        const VoxelCorner corner = takeFirstNodeCorner(storageMask);
+        const VoxelNodeState state = nodeState(block, corner);
+
+        if (state == VoxelNodeState::Branch)
+        {
+            const VoxelIndex index = childStorageIndex(block, corner);
+            releaseDescendants(pool.node(index), pool);
+        }
+        else
+        {
+            MYVOXEL_ASSERT(state == VoxelNodeState::MaskLeaf);
+        }
+    }
+
+    setNodeStateBits(block, changedMask, targetState);
+
+    if (block.storageMask == EmptyVoxelNodeMask &&
+        block.firstChildIndex != InvalidVoxelIndex)
+    {
+        pool.releaseGroup(block.firstChildIndex);
+        block.firstChildIndex = InvalidVoxelIndex;
+    }
+
+    return true;
+}
+
+void VoxelTreeEditor::ensureParentGroup()
 {
     MYVOXEL_ASSERT(m_source == Source::NodeChild);
     MYVOXEL_ASSERT(m_tree);
     MYVOXEL_ASSERT(m_parentBlock);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
 
     if (m_parentBlock->storageMask != 0)
     {
-        MYVOXEL_ASSERT(m_parentBlock->firstChildIndex != InvalidVoxelIndex);
-        MYVOXEL_ASSERT(m_tree->blockPool->containsChildren(m_parentBlock->firstChildIndex));
+        MYVOXEL_ASSERT(
+            m_parentBlock->firstChildIndex != InvalidVoxelIndex);
+
+        MYVOXEL_ASSERT(
+            m_tree->m_blockPool->containsGroup(
+                m_parentBlock->firstChildIndex));
+
         return;
     }
 
-    MYVOXEL_ASSERT(m_parentBlock->firstChildIndex == InvalidVoxelIndex);
-    m_parentBlock->firstChildIndex = m_tree->blockPool->allocateChildren();
+    MYVOXEL_ASSERT(
+        m_parentBlock->firstChildIndex == InvalidVoxelIndex);
+
+    m_parentBlock->firstChildIndex =
+        m_tree->m_blockPool->allocateGroup();
 }
 
-void VoxelTreeEditor::releaseUnusedParentStorage()
+void VoxelTreeEditor::releaseUnusedParentGroup()
 {
     MYVOXEL_ASSERT(m_source == Source::NodeChild);
+    MYVOXEL_ASSERT(m_tree);
     MYVOXEL_ASSERT(m_parentBlock);
+    MYVOXEL_ASSERT(m_tree->m_blockPool);
 
-    if (m_parentBlock->storageMask != 0)
+    if (m_parentBlock->storageMask != 0 ||
+        m_parentBlock->firstChildIndex == InvalidVoxelIndex)
     {
         return;
     }
 
-    if (m_parentBlock->firstChildIndex == InvalidVoxelIndex)
-    {
-        return;
-    }
+    m_tree->m_blockPool->releaseGroup(
+        m_parentBlock->firstChildIndex);
 
-    m_tree->blockPool->releaseChildren(m_parentBlock->firstChildIndex);
     m_parentBlock->firstChildIndex = InvalidVoxelIndex;
-}
-
-void VoxelTreeEditor::detachPool(VoxelTree& tree)
-{
-    MYVOXEL_REQUIRE_MESSAGE(tree.blockPool, "VoxelTree must contain a VoxelBlockPool.");
-
-    if (tree.blockPool->referenceCount() <= 1)
-    {
-        return;
-    }
-
-    Foundation::RefPtr<VoxelBlockPool> detachedPool = Foundation::makeRef<VoxelBlockPool>();
-    VoxelNodeBlock detachedRootBlock;
-
-    if (tree.rootState == VoxelRootState::Subdivided)
-    {
-        cloneNodeBlock(tree.rootBlock, *tree.blockPool, detachedRootBlock, *detachedPool);
-    }
-    else
-    {
-        reset(detachedRootBlock, tree.rootState == VoxelRootState::Material ? VoxelState::Material : VoxelState::Empty);
-    }
-
-    tree.rootBlock = detachedRootBlock;
-    tree.blockPool = detachedPool;
-}
-
-void VoxelTreeEditor::cloneNodeBlock(const VoxelNodeBlock& sourceBlock, const VoxelBlockPool& sourcePool,
-                                     VoxelNodeBlock& targetBlock, VoxelBlockPool& targetPool)
-{
-    targetBlock.storageMask = sourceBlock.storageMask;
-    targetBlock.leafMask = sourceBlock.leafMask;
-    targetBlock.userData = sourceBlock.userData;
-    targetBlock.firstChildIndex = InvalidVoxelIndex;
-
-    if (sourceBlock.storageMask == 0)
-    {
-        MYVOXEL_ASSERT(sourceBlock.firstChildIndex == InvalidVoxelIndex);
-        return;
-    }
-
-    MYVOXEL_ASSERT(sourceBlock.firstChildIndex != InvalidVoxelIndex);
-    MYVOXEL_ASSERT(sourcePool.containsChildren(sourceBlock.firstChildIndex));
-
-    targetBlock.firstChildIndex = targetPool.allocateChildren();
-
-    for (unsigned int cornerIndex = 0; cornerIndex < static_cast<unsigned int>(VoxelCornerCount); ++cornerIndex)
-    {
-        const VoxelCorner corner = static_cast<VoxelCorner>(cornerIndex);
-
-        if (!hasChildStorage(sourceBlock, corner))
-        {
-            continue;
-        }
-
-        const VoxelIndex sourceIndex = sourceBlock.firstChildIndex + static_cast<VoxelIndex>(corner);
-        const VoxelIndex targetIndex = targetBlock.firstChildIndex + static_cast<VoxelIndex>(corner);
-
-        if (childState(sourceBlock, corner) == VoxelState::MaskLeaf)
-        {
-            VoxelLeafBlock& targetLeaf = targetPool.initializeLeaf(targetIndex);
-            targetLeaf.materialMask = sourcePool.leaf(sourceIndex).materialMask;
-            continue;
-        }
-
-        VoxelNodeBlock& targetChild = targetPool.initializeNode(targetIndex);
-        cloneNodeBlock(sourcePool.node(sourceIndex), sourcePool, targetChild, targetPool);
-    }
-}
-
-void VoxelTreeEditor::releaseNodeChildren(VoxelNodeBlock& block, VoxelBlockPool& pool)
-{
-    if (block.storageMask == 0)
-    {
-        MYVOXEL_ASSERT(block.firstChildIndex == InvalidVoxelIndex);
-        return;
-    }
-
-    MYVOXEL_ASSERT(block.firstChildIndex != InvalidVoxelIndex);
-    MYVOXEL_ASSERT(pool.containsChildren(block.firstChildIndex));
-
-    const VoxelIndex firstChildIndex = block.firstChildIndex;
-
-    for (unsigned int cornerIndex = 0; cornerIndex < static_cast<unsigned int>(VoxelCornerCount); ++cornerIndex)
-    {
-        const VoxelCorner corner = static_cast<VoxelCorner>(cornerIndex);
-
-        if (childState(block, corner) != VoxelState::Branch)
-        {
-            continue;
-        }
-
-        const VoxelIndex index = firstChildIndex + static_cast<VoxelIndex>(corner);
-        releaseNodeChildren(pool.node(index), pool);
-    }
-
-    pool.releaseChildren(firstChildIndex);
-    block.storageMask = 0;
-    block.firstChildIndex = InvalidVoxelIndex;
-}
-
-void VoxelTreeEditor::setNodeChildState(VoxelNodeBlock& block, VoxelCorner corner, VoxelState state)
-{
-    switch (state)
-    {
-    case VoxelState::Empty:
-        setMaskBit(block.storageMask, corner, false);
-        setMaskBit(block.leafMask, corner, false);
-        return;
-
-    case VoxelState::Material:
-        setMaskBit(block.storageMask, corner, false);
-        setMaskBit(block.leafMask, corner, true);
-        return;
-
-    case VoxelState::Branch:
-        setMaskBit(block.storageMask, corner, true);
-        setMaskBit(block.leafMask, corner, false);
-        return;
-
-    case VoxelState::MaskLeaf:
-        setMaskBit(block.storageMask, corner, true);
-        setMaskBit(block.leafMask, corner, true);
-        return;
-    }
-
-    MYVOXEL_ASSERT_MESSAGE(false, "Unknown VoxelState.");
-}
-
-void VoxelTreeEditor::setLeafGroupMask(VoxelLeafBlock& leafBlock, VoxelCorner coarseCorner, std::uint8_t mask)
-{
-    const unsigned int offset = leafMaskOffset(coarseCorner);
-    const std::uint64_t groupMask = static_cast<std::uint64_t>(0xFFULL << offset);
-    const std::uint64_t shiftedMask = static_cast<std::uint64_t>(mask) << offset;
-
-    leafBlock.materialMask = (leafBlock.materialMask & ~groupMask) | shiftedMask;
 }
 
 }

@@ -1,6 +1,8 @@
 #ifndef MYVOXEL_BASE_BOUNDS3_H
 #define MYVOXEL_BASE_BOUNDS3_H
 
+#include <cstddef>
+
 #include "MyMath/Matrix4.h"
 #include "MyMath/Vector3.h"
 
@@ -27,7 +29,6 @@ public:
     static Bounds3 fromCenterAndSize(const MyMath::Vector3& center, const MyMath::Vector3& size);
 
     /// 状态判断
-
     // 判断当前包围盒是否具有有限且有序的范围。
     bool isValid() const;
     // 判断当前包围盒的三个方向是否都具有大于指定误差的长度。
@@ -36,12 +37,10 @@ public:
     bool isEqualTo(const Bounds3& other, double epsilon = MyMath::Vector3::DefaultEpsilon) const;
 
     /// 范围访问
-
     // 返回包围盒最小角点。
     const MyMath::Vector3& minimum() const;
     // 返回包围盒最大角点。
     const MyMath::Vector3& maximum() const;
-
     // 返回包围盒中心点。
     MyMath::Vector3 center() const;
     // 返回包围盒在三个方向上的完整尺寸。
@@ -51,8 +50,7 @@ public:
 
     // 返回包围盒体积，退化包围盒返回零。
     double volume() const;
-    // 返回指定编号的包围盒角点，index范围为[0, 7]；二进制编码的第0、1、2位分别控制X、Y、Z坐标，0取最小值，1取最大值。
-    // 例如，0=0x000对应x,y,z=0,0,0
+    // 返回指定编号的包围盒角点，index范围为[0,7]，二进制第0、1、2位分别控制X、Y、Z坐标。
     MyMath::Vector3 corner(std::size_t index) const;
 
     /// 空间关系

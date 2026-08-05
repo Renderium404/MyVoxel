@@ -16,15 +16,12 @@ public:
     explicit SphereGeometry(double radius);
 
     /// 几何参数
-
     // 返回球体半径。
     double radius() const;
 
     /// 几何属性
-
     // 返回标准球体类型。
     ShapeKind kind() const override;
-
     // 返回球体局部轴对齐包围盒。
     Bounds3 localBounds() const override;
 

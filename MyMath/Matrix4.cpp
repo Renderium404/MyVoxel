@@ -3,20 +3,9 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <limits>
+#include "Matrix3.h"
+#include "MathUtils.h"
 
-namespace
-{
-
-// 判断浮点数是否为有限数值，不包含NaN和正负无穷。
-bool isFiniteValue(double value)
-{
-    const double infinity = std::numeric_limits<double>::infinity();
-
-    return value == value && value != infinity && value != -infinity;
-}
-
-}
 
 namespace MyMath
 {
@@ -33,6 +22,32 @@ Matrix4::Matrix4(const std::array<double, ElementCount>& values)
 {
 }
 
+Matrix4::Matrix4(double m00, double m01, double m02, double m03,
+                 double m10, double m11, double m12, double m13,
+                 double m20, double m21, double m22, double m23,
+                 double m30, double m31, double m32, double m33)
+{
+    m_values[0] = m00;
+    m_values[1] = m01;
+    m_values[2] = m02;
+    m_values[3] = m03;
+
+    m_values[4] = m10;
+    m_values[5] = m11;
+    m_values[6] = m12;
+    m_values[7] = m13;
+
+    m_values[8] = m20;
+    m_values[9] = m21;
+    m_values[10] = m22;
+    m_values[11] = m23;
+
+    m_values[12] = m30;
+    m_values[13] = m31;
+    m_values[14] = m32;
+    m_values[15] = m33;
+}
+
 /// 矩阵创建
 
 Matrix4 Matrix4::zero()
@@ -46,14 +61,51 @@ Matrix4 Matrix4::identity()
     matrix.setToIdentity();
     return matrix;
 }
+/// 仿射矩阵创建
 
 Matrix4 Matrix4::fromTranslation(const Vector3& translation)
 {
-    Matrix4 matrix = Matrix4::identity();
-    matrix.setTranslation(translation);
-    return matrix;
+    assert(translation.isFinite());
+
+    return fromAffine(Matrix3::identity(), translation);
 }
 
+Matrix4 Matrix4::fromScale(double scale)
+{
+    assert(MyMath::isFinite(scale));
+
+    return fromScale(Vector3(scale, scale, scale));
+}
+
+Matrix4 Matrix4::fromScale(const Vector3& scale)
+{
+    assert(scale.isFinite());
+
+    return Matrix4(
+        scale.x(), 0.0, 0.0, 0.0,
+        0.0, scale.y(), 0.0, 0.0,
+        0.0, 0.0, scale.z(), 0.0,
+        0.0, 0.0, 0.0, 1.0);
+}
+
+Matrix4 Matrix4::fromRotation(const Matrix3& rotation, double epsilon)
+{
+    assert(rotation.isRotationMatrix(epsilon));
+
+    return fromAffine(rotation, Vector3::zero());
+}
+
+Matrix4 Matrix4::fromAffine(const Matrix3& linearTransform, const Vector3& translation)
+{
+    assert(linearTransform.isFinite());
+    assert(translation.isFinite());
+
+    return Matrix4(
+        linearTransform(0, 0), linearTransform(0, 1), linearTransform(0, 2), translation.x(),
+        linearTransform(1, 0), linearTransform(1, 1), linearTransform(1, 2), translation.y(),
+        linearTransform(2, 0), linearTransform(2, 1), linearTransform(2, 2), translation.z(),
+        0.0, 0.0, 0.0, 1.0);
+}
 /// 元素访问
 
 double Matrix4::value(int row, int column) const
@@ -97,17 +149,10 @@ void Matrix4::setToIdentity()
 {
     setToZero();
 
-    for (int i = 0; i < Size; ++i)
-    {
-        m_values[i * Size + i] = 1.0;
-    }
-}
-
-void Matrix4::setTranslation(const Vector3& translation)
-{
-    m_values[index(0, 3)] = translation.x();
-    m_values[index(1, 3)] = translation.y();
-    m_values[index(2, 3)] = translation.z();
+    m_values[0] = 1.0;
+    m_values[5] = 1.0;
+    m_values[10] = 1.0;
+    m_values[15] = 1.0;
 }
 
 /// 状态判断
@@ -116,7 +161,7 @@ bool Matrix4::isFinite() const
 {
     for (int i = 0; i < ElementCount; ++i)
     {
-        if (!isFiniteValue(m_values[i]))
+        if (!MyMath::isFinite(m_values[i]))
         {
             return false;
         }
@@ -166,63 +211,10 @@ bool Matrix4::isIdentity(double epsilon) const
     return true;
 }
 
-bool Matrix4::isAffine(double epsilon) const
-{
-    return isFinite() &&
-           std::fabs(value(3, 0)) <= epsilon &&
-           std::fabs(value(3, 1)) <= epsilon &&
-           std::fabs(value(3, 2)) <= epsilon &&
-           std::fabs(value(3, 3) - 1.0) <= epsilon;
-}
-
-bool Matrix4::isRotationMatrix(double epsilon) const
-{
-    if (!isRigidTransform(epsilon))
-    {
-        return false;
-    }
-
-    return std::fabs(value(0, 3)) <= epsilon &&
-           std::fabs(value(1, 3)) <= epsilon &&
-           std::fabs(value(2, 3)) <= epsilon;
-}
-
-bool Matrix4::isRigidTransform(double epsilon) const
-{
-    if (!isAffine(epsilon))
-    {
-        return false;
-    }
-
-    const Vector3 xAxis(value(0, 0), value(1, 0), value(2, 0));
-    const Vector3 yAxis(value(0, 1), value(1, 1), value(2, 1));
-    const Vector3 zAxis(value(0, 2), value(1, 2), value(2, 2));
-
-    if (!xAxis.isUnit(epsilon) || !yAxis.isUnit(epsilon) || !zAxis.isUnit(epsilon))
-    {
-        return false;
-    }
-
-    if (std::fabs(Vector3::dot(xAxis, yAxis)) > epsilon ||
-        std::fabs(Vector3::dot(xAxis, zAxis)) > epsilon ||
-        std::fabs(Vector3::dot(yAxis, zAxis)) > epsilon)
-    {
-        return false;
-    }
-
-    const double handedness = Vector3::dot(Vector3::cross(xAxis, yAxis), zAxis);
-
-    return std::fabs(handedness - 1.0) <= epsilon;
-}
-
 bool Matrix4::isInvertible(double epsilon) const
 {
-    if (!isFinite())
-    {
-        return false;
-    }
-
-    return std::fabs(determinant()) > epsilon;
+    Matrix4 result;
+    return inverted(result, epsilon);
 }
 
 bool Matrix4::isEqualTo(const Matrix4& other, double epsilon) const
@@ -242,42 +234,90 @@ bool Matrix4::isEqualTo(const Matrix4& other, double epsilon) const
 
     return true;
 }
-
-/// 变换分量
-
-Vector3 Matrix4::translation() const
+bool Matrix4::isAffine(double epsilon) const
 {
-    return Vector3(value(0, 3), value(1, 3), value(2, 3));
+    if (!isFinite())
+    {
+        return false;
+    }
+
+    return std::fabs(m_values[12]) <= epsilon &&
+           std::fabs(m_values[13]) <= epsilon &&
+           std::fabs(m_values[14]) <= epsilon &&
+           std::fabs(m_values[15] - 1.0) <= epsilon;
+}
+/// 矩阵特征
+
+double Matrix4::trace() const
+{
+    if (!isFinite())
+    {
+        return quietNaN();
+    }
+
+    return m_values[0] + m_values[5] + m_values[10] + m_values[15];
 }
 
-/// 点和向量变换
-
-Vector3 Matrix4::transformPoint(const Vector3& point) const
+double Matrix4::absoluteMaximum() const
 {
-    return Vector3(value(0, 0) * point.x() + value(0, 1) * point.y() + value(0, 2) * point.z() + value(0, 3),
-                   value(1, 0) * point.x() + value(1, 1) * point.y() + value(1, 2) * point.z() + value(1, 3),
-                   value(2, 0) * point.x() + value(2, 1) * point.y() + value(2, 2) * point.z() + value(2, 3));
+    if (!isFinite())
+    {
+        return quietNaN();
+    }
+
+    double result = 0.0;
+
+    for (int i = 0; i < ElementCount; ++i)
+    {
+        result = (std::max)(result, std::fabs(m_values[i]));
+    }
+
+    return result;
 }
 
-Vector3 Matrix4::transformVector(const Vector3& vector) const
+double Matrix4::oneNorm() const
 {
-    return Vector3(value(0, 0) * vector.x() + value(0, 1) * vector.y() + value(0, 2) * vector.z(),
-                   value(1, 0) * vector.x() + value(1, 1) * vector.y() + value(1, 2) * vector.z(),
-                   value(2, 0) * vector.x() + value(2, 1) * vector.y() + value(2, 2) * vector.z());
+    if (!isFinite())
+    {
+        return quietNaN();
+    }
+
+    double result = 0.0;
+
+    for (int column = 0; column < Size; ++column)
+    {
+        double sum = 0.0;
+
+        for (int row = 0; row < Size; ++row)
+        {
+            sum += std::fabs(value(row, column));
+        }
+
+        result = (std::max)(result, sum);
+    }
+
+    return result;
 }
 
-/// 基础运算
-
-Matrix4 Matrix4::transposed() const
+double Matrix4::infinityNorm() const
 {
-    Matrix4 result;
+    if (!isFinite())
+    {
+        return quietNaN();
+    }
+
+    double result = 0.0;
 
     for (int row = 0; row < Size; ++row)
     {
+        double sum = 0.0;
+
         for (int column = 0; column < Size; ++column)
         {
-            result(row, column) = value(column, row);
+            sum += std::fabs(value(row, column));
         }
+
+        result = (std::max)(result, sum);
     }
 
     return result;
@@ -287,7 +327,14 @@ double Matrix4::determinant() const
 {
     if (!isFinite())
     {
-        return std::numeric_limits<double>::quiet_NaN();
+        return quietNaN();
+    }
+
+    const double scale = absoluteMaximum();
+
+    if (scale == 0.0)
+    {
+        return 0.0;
     }
 
     double values[Size][Size];
@@ -296,30 +343,30 @@ double Matrix4::determinant() const
     {
         for (int column = 0; column < Size; ++column)
         {
-            values[row][column] = value(row, column);
+            values[row][column] = value(row, column) / scale;
         }
     }
 
-    double result = 1.0;
+    double normalizedDeterminant = 1.0;
     int sign = 1;
 
     for (int column = 0; column < Size; ++column)
     {
         int pivotRow = column;
-        double pivotAbs = std::fabs(values[column][column]);
+        double pivotAbsolute = std::fabs(values[column][column]);
 
         for (int row = column + 1; row < Size; ++row)
         {
-            const double currentAbs = std::fabs(values[row][column]);
+            const double currentAbsolute = std::fabs(values[row][column]);
 
-            if (currentAbs > pivotAbs)
+            if (currentAbsolute > pivotAbsolute)
             {
-                pivotAbs = currentAbs;
+                pivotAbsolute = currentAbsolute;
                 pivotRow = row;
             }
         }
 
-        if (pivotAbs == 0.0)
+        if (pivotAbsolute == 0.0)
         {
             return 0.0;
         }
@@ -335,7 +382,7 @@ double Matrix4::determinant() const
         }
 
         const double pivotValue = values[column][column];
-        result *= pivotValue;
+        normalizedDeterminant *= pivotValue;
 
         for (int row = column + 1; row < Size; ++row)
         {
@@ -348,12 +395,59 @@ double Matrix4::determinant() const
         }
     }
 
-    return sign * result;
+    const double scaleSquared = scale * scale;
+
+    return static_cast<double>(sign) * normalizedDeterminant * scaleSquared * scaleSquared;
+}
+
+/// 向量运算
+
+std::array<double, Matrix4::Size> Matrix4::transformVector(double x, double y, double z, double w) const
+{
+    std::array<double, Size> result;
+
+    result[0] = m_values[0] * x + m_values[1] * y + m_values[2] * z + m_values[3] * w;
+    result[1] = m_values[4] * x + m_values[5] * y + m_values[6] * z + m_values[7] * w;
+    result[2] = m_values[8] * x + m_values[9] * y + m_values[10] * z + m_values[11] * w;
+    result[3] = m_values[12] * x + m_values[13] * y + m_values[14] * z + m_values[15] * w;
+
+    return result;
+}
+Vector3 Matrix4::transformPoint(const Vector3& point) const
+{
+    return Vector3(
+        m_values[0] * point.m_x + m_values[1] * point.m_y + m_values[2] * point.m_z + m_values[3],
+        m_values[4] * point.m_x + m_values[5] * point.m_y + m_values[6] * point.m_z + m_values[7],
+        m_values[8] * point.m_x + m_values[9] * point.m_y + m_values[10] * point.m_z + m_values[11]);
+}
+
+Vector3 Matrix4::transformVector(const Vector3& vector) const
+{
+    return Vector3(
+        m_values[0] * vector.m_x + m_values[1] * vector.m_y + m_values[2] * vector.m_z,
+        m_values[4] * vector.m_x + m_values[5] * vector.m_y + m_values[6] * vector.m_z,
+        m_values[8] * vector.m_x + m_values[9] * vector.m_y + m_values[10] * vector.m_z);
+}
+/// 基础运算
+
+Matrix4 Matrix4::transposed() const
+{
+    return Matrix4(m_values[0], m_values[4], m_values[8], m_values[12],
+                   m_values[1], m_values[5], m_values[9], m_values[13],
+                   m_values[2], m_values[6], m_values[10], m_values[14],
+                   m_values[3], m_values[7], m_values[11], m_values[15]);
 }
 
 bool Matrix4::inverted(Matrix4& result, double epsilon) const
 {
     if (!isFinite())
+    {
+        return false;
+    }
+
+    const double scale = absoluteMaximum();
+
+    if (scale == 0.0)
     {
         return false;
     }
@@ -364,7 +458,7 @@ bool Matrix4::inverted(Matrix4& result, double epsilon) const
     {
         for (int column = 0; column < Size; ++column)
         {
-            augmented[row][column] = value(row, column);
+            augmented[row][column] = value(row, column) / scale;
             augmented[row][column + Size] = row == column ? 1.0 : 0.0;
         }
     }
@@ -372,20 +466,20 @@ bool Matrix4::inverted(Matrix4& result, double epsilon) const
     for (int column = 0; column < Size; ++column)
     {
         int pivotRow = column;
-        double pivotAbs = std::fabs(augmented[column][column]);
+        double pivotAbsolute = std::fabs(augmented[column][column]);
 
         for (int row = column + 1; row < Size; ++row)
         {
-            const double currentAbs = std::fabs(augmented[row][column]);
+            const double currentAbsolute = std::fabs(augmented[row][column]);
 
-            if (currentAbs > pivotAbs)
+            if (currentAbsolute > pivotAbsolute)
             {
-                pivotAbs = currentAbs;
+                pivotAbsolute = currentAbsolute;
                 pivotRow = row;
             }
         }
 
-        if (pivotAbs <= epsilon)
+        if (pivotAbsolute <= epsilon)
         {
             return false;
         }
@@ -427,11 +521,17 @@ bool Matrix4::inverted(Matrix4& result, double epsilon) const
     {
         for (int column = 0; column < Size; ++column)
         {
-            invertedMatrix(row, column) = augmented[row][column + Size];
+            invertedMatrix(row, column) = augmented[row][column + Size] / scale;
         }
     }
 
+    if (!invertedMatrix.isFinite())
+    {
+        return false;
+    }
+
     result = invertedMatrix;
+
     return true;
 }
 
@@ -445,9 +545,20 @@ bool Matrix4::invert(double epsilon)
     }
 
     *this = invertedMatrix;
+
     return true;
 }
+/// 仿射矩阵属性
 
+Vector3 Matrix4::translation() const
+{
+    assert(isAffine());
+
+    return Vector3(
+        m_values[3],
+        m_values[7],
+        m_values[11]);
+}
 /// 算术运算
 
 Matrix4 Matrix4::operator+(const Matrix4& other) const
@@ -557,6 +668,7 @@ Matrix4& Matrix4::operator-=(const Matrix4& other)
 Matrix4& Matrix4::operator*=(const Matrix4& other)
 {
     *this = *this * other;
+
     return *this;
 }
 
@@ -582,6 +694,8 @@ Matrix4& Matrix4::operator/=(double scalar)
     return *this;
 }
 
+/// 内部辅助
+
 void Matrix4::checkIndex(int row, int column)
 {
     assert(row >= 0 && row < Size);
@@ -591,6 +705,7 @@ void Matrix4::checkIndex(int row, int column)
 int Matrix4::index(int row, int column)
 {
     checkIndex(row, column);
+
     return row * Size + column;
 }
 

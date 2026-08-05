@@ -236,4 +236,31 @@ VoxelCellAddress rootCellAddress(const VoxelCellAddress& address)
     return ancestorCellAddress(address, BaseVoxelLevel);
 }
 
+void buildCornerPath(const VoxelCellAddress& ancestorAddress,
+                     const VoxelCellAddress& targetAddress,
+                     std::vector<VoxelCorner>& path)
+{
+    MYVOXEL_ASSERT_MESSAGE(
+        ancestorAddress.level <= targetAddress.level,
+        "Voxel path ancestor level must not exceed the target level.");
+
+    const std::size_t cornerCount =
+        static_cast<std::size_t>(
+            targetAddress.level - ancestorAddress.level);
+
+    path.resize(cornerCount);
+
+    VoxelCellAddress currentAddress = targetAddress;
+
+    for (std::size_t pathIndex = cornerCount; pathIndex > 0; --pathIndex)
+    {
+        path[pathIndex - 1] = childCornerInParent(currentAddress);
+        currentAddress = parentCellAddress(currentAddress);
+    }
+
+    MYVOXEL_ASSERT_MESSAGE(
+        currentAddress == ancestorAddress,
+        "Voxel path start address must be an ancestor of the target address.");
+}
+
 }

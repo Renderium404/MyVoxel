@@ -182,7 +182,7 @@ VoxelCellRange VoxelGrid::cellRange(const Bounds3& bounds, VoxelLevel level) con
 Bounds3 VoxelGrid::cellBounds(const VoxelCellAddress& address) const
 {
     const double edgeLength = cellEdgeLength(address.level);
-
+    
     const double minimumX = m_origin.x() + static_cast<double>(address.index.x) * edgeLength;
     const double minimumY = m_origin.y() + static_cast<double>(address.index.y) * edgeLength;
     const double minimumZ = m_origin.z() + static_cast<double>(address.index.z) * edgeLength;

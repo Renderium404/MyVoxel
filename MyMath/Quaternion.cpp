@@ -3,20 +3,8 @@
 #include <algorithm>
 #include <cassert>
 #include <cmath>
-#include <limits>
 
-namespace
-{
-
-// 判断浮点数是否为有限数值，不包含NaN和正负无穷。
-bool isFiniteValue(double value)
-{
-    const double infinity = std::numeric_limits<double>::infinity();
-
-    return value == value && value != infinity && value != -infinity;
-}
-
-}
+#include "MathUtils.h"
 
 namespace MyMath
 {
@@ -53,7 +41,7 @@ Quaternion Quaternion::identity()
 
 Quaternion Quaternion::fromAxisAngle(const Vector3& axis, double angle, double epsilon)
 {
-    if (!axis.isVector(epsilon) || !isFiniteValue(angle))
+    if (!axis.isVector(epsilon) || !MyMath::isFinite(angle))
     {
         return Quaternion::zero();
     }
@@ -63,59 +51,85 @@ Quaternion Quaternion::fromAxisAngle(const Vector3& axis, double angle, double e
     const double sinHalfAngle = std::sin(halfAngle);
 
     return Quaternion(std::cos(halfAngle),
-                      normalizedAxis.x() * sinHalfAngle,
-                      normalizedAxis.y() * sinHalfAngle,
-                      normalizedAxis.z() * sinHalfAngle);
+                      normalizedAxis.m_x * sinHalfAngle,
+                      normalizedAxis.m_y * sinHalfAngle,
+                      normalizedAxis.m_z * sinHalfAngle);
 }
 
-Quaternion Quaternion::fromRotationMatrix(const Matrix4& matrix, double epsilon)
+Quaternion Quaternion::fromRotationMatrix(const Matrix3& matrix, double epsilon)
 {
     if (!matrix.isRotationMatrix(epsilon))
     {
         return Quaternion::zero();
     }
 
-    const double m00 = matrix(0, 0);
-    const double m11 = matrix(1, 1);
-    const double m22 = matrix(2, 2);
-    const double trace = m00 + m11 + m22;
+    const double m00 = matrix.m_values[0];
+    const double m01 = matrix.m_values[1];
+    const double m02 = matrix.m_values[2];
+    const double m10 = matrix.m_values[3];
+    const double m11 = matrix.m_values[4];
+    const double m12 = matrix.m_values[5];
+    const double m20 = matrix.m_values[6];
+    const double m21 = matrix.m_values[7];
+    const double m22 = matrix.m_values[8];
+    const double matrixTrace = m00 + m11 + m22;
 
     Quaternion quaternion;
 
-    if (trace > 0.0)
+    if (matrixTrace > 0.0)
     {
-        const double divisor = 2.0 * std::sqrt(std::max(0.0, trace + 1.0));
+        const double divisor = 2.0 * std::sqrt((std::max)(0.0, matrixTrace + 1.0));
+
+        if (divisor <= epsilon)
+        {
+            return Quaternion::zero();
+        }
 
         quaternion.m_w = 0.25 * divisor;
-        quaternion.m_x = (matrix(2, 1) - matrix(1, 2)) / divisor;
-        quaternion.m_y = (matrix(0, 2) - matrix(2, 0)) / divisor;
-        quaternion.m_z = (matrix(1, 0) - matrix(0, 1)) / divisor;
+        quaternion.m_x = (m21 - m12) / divisor;
+        quaternion.m_y = (m02 - m20) / divisor;
+        quaternion.m_z = (m10 - m01) / divisor;
     }
     else if (m00 > m11 && m00 > m22)
     {
-        const double divisor = 2.0 * std::sqrt(std::max(0.0, 1.0 + m00 - m11 - m22));
+        const double divisor = 2.0 * std::sqrt((std::max)(0.0, 1.0 + m00 - m11 - m22));
 
-        quaternion.m_w = (matrix(2, 1) - matrix(1, 2)) / divisor;
+        if (divisor <= epsilon)
+        {
+            return Quaternion::zero();
+        }
+
+        quaternion.m_w = (m21 - m12) / divisor;
         quaternion.m_x = 0.25 * divisor;
-        quaternion.m_y = (matrix(0, 1) + matrix(1, 0)) / divisor;
-        quaternion.m_z = (matrix(0, 2) + matrix(2, 0)) / divisor;
+        quaternion.m_y = (m01 + m10) / divisor;
+        quaternion.m_z = (m02 + m20) / divisor;
     }
     else if (m11 > m22)
     {
-        const double divisor = 2.0 * std::sqrt(std::max(0.0, 1.0 + m11 - m00 - m22));
+        const double divisor = 2.0 * std::sqrt((std::max)(0.0, 1.0 + m11 - m00 - m22));
 
-        quaternion.m_w = (matrix(0, 2) - matrix(2, 0)) / divisor;
-        quaternion.m_x = (matrix(0, 1) + matrix(1, 0)) / divisor;
+        if (divisor <= epsilon)
+        {
+            return Quaternion::zero();
+        }
+
+        quaternion.m_w = (m02 - m20) / divisor;
+        quaternion.m_x = (m01 + m10) / divisor;
         quaternion.m_y = 0.25 * divisor;
-        quaternion.m_z = (matrix(1, 2) + matrix(2, 1)) / divisor;
+        quaternion.m_z = (m12 + m21) / divisor;
     }
     else
     {
-        const double divisor = 2.0 * std::sqrt(std::max(0.0, 1.0 + m22 - m00 - m11));
+        const double divisor = 2.0 * std::sqrt((std::max)(0.0, 1.0 + m22 - m00 - m11));
 
-        quaternion.m_w = (matrix(1, 0) - matrix(0, 1)) / divisor;
-        quaternion.m_x = (matrix(0, 2) + matrix(2, 0)) / divisor;
-        quaternion.m_y = (matrix(1, 2) + matrix(2, 1)) / divisor;
+        if (divisor <= epsilon)
+        {
+            return Quaternion::zero();
+        }
+
+        quaternion.m_w = (m10 - m01) / divisor;
+        quaternion.m_x = (m02 + m20) / divisor;
+        quaternion.m_y = (m12 + m21) / divisor;
         quaternion.m_z = 0.25 * divisor;
     }
 
@@ -176,13 +190,27 @@ void Quaternion::set(double w, double x, double y, double z)
 
 bool Quaternion::isFinite() const
 {
-    return isFiniteValue(m_w) && isFiniteValue(m_x) &&
-           isFiniteValue(m_y) && isFiniteValue(m_z);
+    return MyMath::isFinite(m_w) && MyMath::isFinite(m_x) &&
+           MyMath::isFinite(m_y) && MyMath::isFinite(m_z);
 }
 
 bool Quaternion::isZero(double epsilon) const
 {
-    return isFinite() && lengthSquared() <= epsilon * epsilon;
+    if (!isFinite())
+    {
+        return false;
+    }
+
+    const double scale = maximumAbsolute(m_w, m_x, m_y, m_z);
+
+    if (scale == 0.0)
+    {
+        return true;
+    }
+
+    const double normalizedLength = scaledNorm(m_w, m_x, m_y, m_z, scale);
+
+    return scale <= epsilon / normalizedLength;
 }
 
 bool Quaternion::isIdentity(double epsilon) const
@@ -192,10 +220,8 @@ bool Quaternion::isIdentity(double epsilon) const
         return false;
     }
 
-    const Quaternion positiveIdentity = Quaternion::identity();
-    const Quaternion negativeIdentity(-1.0, 0.0, 0.0, 0.0);
-
-    return isEqualTo(positiveIdentity, epsilon) || isEqualTo(negativeIdentity, epsilon);
+    return isEqualTo(Quaternion::identity(), epsilon) ||
+           isEqualTo(Quaternion(-1.0, 0.0, 0.0, 0.0), epsilon);
 }
 
 bool Quaternion::isUnit(double epsilon) const
@@ -210,13 +236,10 @@ bool Quaternion::isEqualTo(const Quaternion& other, double epsilon) const
         return false;
     }
 
-    const double deltaW = m_w - other.m_w;
-    const double deltaX = m_x - other.m_x;
-    const double deltaY = m_y - other.m_y;
-    const double deltaZ = m_z - other.m_z;
-
-    return deltaW * deltaW + deltaX * deltaX +
-           deltaY * deltaY + deltaZ * deltaZ <= epsilon * epsilon;
+    return norm(m_w - other.m_w,
+                m_x - other.m_x,
+                m_y - other.m_y,
+                m_z - other.m_z) <= epsilon;
 }
 
 bool Quaternion::isSameRotation(const Quaternion& other, double epsilon) const
@@ -238,32 +261,61 @@ double Quaternion::lengthSquared() const
 
 double Quaternion::length() const
 {
-    return std::sqrt(lengthSquared());
+    return norm(m_w, m_x, m_y, m_z);
 }
 
 Quaternion Quaternion::normalized(double epsilon) const
 {
-    if (!isFinite() || isZero(epsilon))
+    if (!isFinite())
     {
         return Quaternion::zero();
     }
 
-    return *this / length();
+    const double scale = maximumAbsolute(m_w, m_x, m_y, m_z);
+
+    if (scale == 0.0)
+    {
+        return Quaternion::zero();
+    }
+
+    const double normalizedLength = scaledNorm(m_w, m_x, m_y, m_z, scale);
+
+    if (scale <= epsilon / normalizedLength)
+    {
+        return Quaternion::zero();
+    }
+
+    return Quaternion(m_w / scale / normalizedLength,
+                      m_x / scale / normalizedLength,
+                      m_y / scale / normalizedLength,
+                      m_z / scale / normalizedLength);
 }
 
 bool Quaternion::normalize(double epsilon)
 {
-    if (!isFinite() || isZero(epsilon))
+    if (!isFinite())
     {
         return false;
     }
 
-    const double quaternionLength = length();
+    const double scale = maximumAbsolute(m_w, m_x, m_y, m_z);
 
-    m_w /= quaternionLength;
-    m_x /= quaternionLength;
-    m_y /= quaternionLength;
-    m_z /= quaternionLength;
+    if (scale == 0.0)
+    {
+        return false;
+    }
+
+    const double normalizedLength = scaledNorm(m_w, m_x, m_y, m_z, scale);
+
+    if (scale <= epsilon / normalizedLength)
+    {
+        return false;
+    }
+
+    m_w = m_w / scale / normalizedLength;
+    m_x = m_x / scale / normalizedLength;
+    m_y = m_y / scale / normalizedLength;
+    m_z = m_z / scale / normalizedLength;
 
     return true;
 }
@@ -277,12 +329,41 @@ Quaternion Quaternion::conjugated() const
 
 Quaternion Quaternion::inverted(double epsilon) const
 {
-    if (!isFinite() || isZero(epsilon))
+    if (!isFinite())
     {
         return Quaternion::zero();
     }
 
-    return conjugated() / lengthSquared();
+    const double scale = maximumAbsolute(m_w, m_x, m_y, m_z);
+
+    if (scale == 0.0)
+    {
+        return Quaternion::zero();
+    }
+
+    const double scaledW = m_w / scale;
+    const double scaledX = m_x / scale;
+    const double scaledY = m_y / scale;
+    const double scaledZ = m_z / scale;
+    const double scaledLengthSquared =
+        scaledW * scaledW +
+        scaledX * scaledX +
+        scaledY * scaledY +
+        scaledZ * scaledZ;
+
+    const double normalizedLength = std::sqrt(scaledLengthSquared);
+
+    if (scale <= epsilon / normalizedLength)
+    {
+        return Quaternion::zero();
+    }
+
+    const double factor = 1.0 / scale / scaledLengthSquared;
+
+    return Quaternion(scaledW * factor,
+                      -scaledX * factor,
+                      -scaledY * factor,
+                      -scaledZ * factor);
 }
 
 void Quaternion::toAxisAngle(Vector3& axis, double& angle, double epsilon) const
@@ -290,9 +371,9 @@ void Quaternion::toAxisAngle(Vector3& axis, double& angle, double epsilon) const
     assert(isUnit(epsilon));
 
     const Quaternion canonical = m_w < 0.0 ? -*this : *this;
-    const double boundedW = std::max(-1.0, std::min(1.0, canonical.m_w));
+    const double boundedW = clamp(canonical.m_w, -1.0, 1.0);
     const double calculatedAngle = 2.0 * std::acos(boundedW);
-    const double sinHalfAngle = std::sqrt(std::max(0.0, 1.0 - boundedW * boundedW));
+    const double sinHalfAngle = std::sqrt((std::max)(0.0, 1.0 - boundedW * boundedW));
 
     if (sinHalfAngle <= epsilon)
     {
@@ -304,14 +385,15 @@ void Quaternion::toAxisAngle(Vector3& axis, double& angle, double epsilon) const
     axis = Vector3(canonical.m_x / sinHalfAngle,
                    canonical.m_y / sinHalfAngle,
                    canonical.m_z / sinHalfAngle).normalized(epsilon);
+
     angle = calculatedAngle;
 }
 
-Matrix4 Quaternion::toRotationMatrix(double epsilon) const
+Matrix3 Quaternion::toRotationMatrix(double epsilon) const
 {
     if (!isUnit(epsilon))
     {
-        return Matrix4::zero();
+        return Matrix3::zero();
     }
 
     const double xx = m_x * m_x;
@@ -324,19 +406,9 @@ Matrix4 Quaternion::toRotationMatrix(double epsilon) const
     const double wy = m_w * m_y;
     const double wz = m_w * m_z;
 
-    Matrix4 matrix = Matrix4::identity();
-
-    matrix(0, 0) = 1.0 - 2.0 * (yy + zz);
-    matrix(0, 1) = 2.0 * (xy - wz);
-    matrix(0, 2) = 2.0 * (xz + wy);
-    matrix(1, 0) = 2.0 * (xy + wz);
-    matrix(1, 1) = 1.0 - 2.0 * (xx + zz);
-    matrix(1, 2) = 2.0 * (yz - wx);
-    matrix(2, 0) = 2.0 * (xz - wy);
-    matrix(2, 1) = 2.0 * (yz + wx);
-    matrix(2, 2) = 1.0 - 2.0 * (xx + yy);
-
-    return matrix;
+    return Matrix3(1.0 - 2.0 * (yy + zz), 2.0 * (xy - wz),       2.0 * (xz + wy),
+                   2.0 * (xy + wz),       1.0 - 2.0 * (xx + zz), 2.0 * (yz - wx),
+                   2.0 * (xz - wy),       2.0 * (yz + wx),       1.0 - 2.0 * (xx + yy));
 }
 
 Vector3 Quaternion::rotateVector(const Vector3& vector, double epsilon) const
@@ -344,19 +416,24 @@ Vector3 Quaternion::rotateVector(const Vector3& vector, double epsilon) const
     assert(isUnit(epsilon));
     assert(vector.isFinite());
 
-    const Vector3 quaternionVector(m_x, m_y, m_z);
-    const Vector3 intermediate = 2.0 * Vector3::cross(quaternionVector, vector);
+    const double intermediateX = 2.0 * (m_y * vector.m_z - m_z * vector.m_y);
+    const double intermediateY = 2.0 * (m_z * vector.m_x - m_x * vector.m_z);
+    const double intermediateZ = 2.0 * (m_x * vector.m_y - m_y * vector.m_x);
 
-    return vector + m_w * intermediate + Vector3::cross(quaternionVector, intermediate);
+    return Vector3(vector.m_x + m_w * intermediateX + m_y * intermediateZ - m_z * intermediateY,
+                   vector.m_y + m_w * intermediateY + m_z * intermediateX - m_x * intermediateZ,
+                   vector.m_z + m_w * intermediateZ + m_x * intermediateY - m_y * intermediateX);
 }
 
 /// 插值计算
 
-Quaternion Quaternion::slerp(const Quaternion& from, const Quaternion& to, double factor,
-                             double epsilon)
+Quaternion Quaternion::slerp(const Quaternion& from, const Quaternion& to, double factor, double epsilon)
 {
-    if (!from.isUnit(epsilon) || !to.isUnit(epsilon) ||
-        !isFiniteValue(factor) || factor < 0.0 || factor > 1.0)
+    if (!from.isUnit(epsilon) ||
+        !to.isUnit(epsilon) ||
+        !MyMath::isFinite(factor) ||
+        factor < 0.0 ||
+        factor > 1.0)
     {
         return Quaternion::zero();
     }
@@ -370,7 +447,7 @@ Quaternion Quaternion::slerp(const Quaternion& from, const Quaternion& to, doubl
         cosine = -cosine;
     }
 
-    cosine = std::max(-1.0, std::min(1.0, cosine));
+    cosine = clamp(cosine, -1.0, 1.0);
 
     if (1.0 - cosine <= epsilon)
     {
@@ -391,24 +468,30 @@ Quaternion Quaternion::slerp(const Quaternion& from, const Quaternion& to, doubl
     return (from * fromWeight + target * toWeight).normalized(epsilon);
 }
 
-/// 四元数运算
+/// 算术运算
 
 double Quaternion::dot(const Quaternion& first, const Quaternion& second)
 {
-    return first.m_w * second.m_w + first.m_x * second.m_x +
-           first.m_y * second.m_y + first.m_z * second.m_z;
+    return first.m_w * second.m_w +
+           first.m_x * second.m_x +
+           first.m_y * second.m_y +
+           first.m_z * second.m_z;
 }
 
 Quaternion Quaternion::operator+(const Quaternion& other) const
 {
-    return Quaternion(m_w + other.m_w, m_x + other.m_x,
-                      m_y + other.m_y, m_z + other.m_z);
+    return Quaternion(m_w + other.m_w,
+                      m_x + other.m_x,
+                      m_y + other.m_y,
+                      m_z + other.m_z);
 }
 
 Quaternion Quaternion::operator-(const Quaternion& other) const
 {
-    return Quaternion(m_w - other.m_w, m_x - other.m_x,
-                      m_y - other.m_y, m_z - other.m_z);
+    return Quaternion(m_w - other.m_w,
+                      m_x - other.m_x,
+                      m_y - other.m_y,
+                      m_z - other.m_z);
 }
 
 Quaternion Quaternion::operator-() const
@@ -432,7 +515,6 @@ Quaternion Quaternion::operator*(double scalar) const
 Quaternion Quaternion::operator/(double scalar) const
 {
     assert(scalar != 0.0);
-
     return Quaternion(m_w / scalar, m_x / scalar, m_y / scalar, m_z / scalar);
 }
 

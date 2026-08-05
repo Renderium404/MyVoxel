@@ -2,6 +2,7 @@
 #define MYVOXEL_CORE_VOXELADDRESS_H
 
 #include <cstdint>
+#include <vector>
 
 #include "VoxelTypes.h"
 
@@ -54,24 +55,18 @@ public:
     VoxelCellRange(const VoxelCellIndex& minimumValue, const VoxelCellIndex& maximumValue, VoxelLevel levelValue = BaseVoxelLevel);
 
     /// 状态判断
-
     // 判断当前范围的三个方向是否均满足最小索引不大于最大索引。
     bool isValid() const;
-
     // 判断指定体素索引是否位于当前闭区间中。
     bool contains(const VoxelCellIndex& cellIndex) const;
-
     // 判断指定体素地址是否位于当前层级和闭区间中。
     bool contains(const VoxelCellAddress& address) const;
 
     /// 范围属性
-
     // 返回X方向包含的体素数量，无效范围返回零。
     std::uint64_t countX() const;
-
     // 返回Y方向包含的体素数量，无效范围返回零。
     std::uint64_t countY() const;
-
     // 返回Z方向包含的体素数量，无效范围返回零。
     std::uint64_t countZ() const;
 
@@ -99,6 +94,14 @@ VoxelCellAddress ancestorCellAddress(const VoxelCellAddress& address, VoxelLevel
 
 // 返回指定体素所属的第0层根体素地址。
 VoxelCellAddress rootCellAddress(const VoxelCellAddress& address);
+
+// 构造从指定祖先体素到目标后代体素的子角点路径。
+//
+// 路径按照从祖先的直接子体素到目标体素的顺序保存。
+// 两个地址相同时返回空路径，ancestorAddress必须是targetAddress的祖先。
+void buildCornerPath(const VoxelCellAddress& ancestorAddress,
+                     const VoxelCellAddress& targetAddress,
+                     std::vector<VoxelCorner>& path);
 
 }
 

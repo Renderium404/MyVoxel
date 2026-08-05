@@ -10,6 +10,7 @@ namespace MyVoxel
 {
 
 // 定义无限稀疏体素网格的原点、基础边长和最高细分层级。
+// 用于三维坐标与三维离散坐标进行映射
 class VoxelGrid
 {
 public:

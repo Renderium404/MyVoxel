@@ -1,6 +1,8 @@
 #include "Bounds3.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <limits>
 
 #include "MyVoxel/Foundation/Diagnostic.h"
@@ -8,9 +10,9 @@
 namespace
 {
 
-const std::size_t XCornerMask = 1;
-const std::size_t YCornerMask = 2;
-const std::size_t ZCornerMask = 4;
+const std::size_t XCornerMask = 1; // 角点索引第0位控制X坐标。
+const std::size_t YCornerMask = 2; // 角点索引第1位控制Y坐标。
+const std::size_t ZCornerMask = 4; // 角点索引第2位控制Z坐标。
 
 // 判断标量是否为有限数值。
 bool isFiniteValue(double value)
@@ -33,6 +35,18 @@ bool isValidRange(const MyMath::Vector3& minimum, const MyMath::Vector3& maximum
            minimum.x() <= maximum.x() &&
            minimum.y() <= maximum.y() &&
            minimum.z() <= maximum.z();
+}
+
+// 判断四阶矩阵是否满足仿射齐次矩阵的最后一行约束。
+bool isAffineTransform(const MyMath::Matrix4& transform)
+{
+    const double epsilon = MyMath::Matrix4::DefaultEpsilon;
+
+    return transform.isFinite() &&
+           std::fabs(transform(3, 0)) <= epsilon &&
+           std::fabs(transform(3, 1)) <= epsilon &&
+           std::fabs(transform(3, 2)) <= epsilon &&
+           std::fabs(transform(3, 3) - 1.0) <= epsilon;
 }
 
 }
@@ -110,7 +124,8 @@ bool Bounds3::isEqualTo(const Bounds3& other, double epsilon) const
         return true;
     }
 
-    return m_minimum.isEqualTo(other.m_minimum, epsilon) && m_maximum.isEqualTo(other.m_maximum, epsilon);
+    return m_minimum.isEqualTo(other.m_minimum, epsilon) &&
+           m_maximum.isEqualTo(other.m_maximum, epsilon);
 }
 
 /// 范围访问
@@ -236,14 +251,14 @@ void Bounds3::include(const MyMath::Vector3& point)
     }
 
     m_minimum.set(
-        std::min(m_minimum.x(), point.x()),
-        std::min(m_minimum.y(), point.y()),
-        std::min(m_minimum.z(), point.z()));
+        (std::min)(m_minimum.x(), point.x()),
+        (std::min)(m_minimum.y(), point.y()),
+        (std::min)(m_minimum.z(), point.z()));
 
     m_maximum.set(
-        std::max(m_maximum.x(), point.x()),
-        std::max(m_maximum.y(), point.y()),
-        std::max(m_maximum.z(), point.z()));
+        (std::max)(m_maximum.x(), point.x()),
+        (std::max)(m_maximum.y(), point.y()),
+        (std::max)(m_maximum.z(), point.z()));
 }
 
 void Bounds3::include(const Bounds3& bounds)
@@ -292,7 +307,8 @@ Bounds3 Bounds3::translated(const MyMath::Vector3& offset) const
 
 Bounds3 Bounds3::transformed(const MyMath::Matrix4& transform) const
 {
-    MYVOXEL_ASSERT_MESSAGE(transform.isAffine(), "Bounds3 transformation matrix must be affine.");
+    MYVOXEL_ASSERT_MESSAGE(isValid(), "Cannot transform an invalid Bounds3.");
+    MYVOXEL_ASSERT_MESSAGE(transform.isAffine(), "Bounds3 transform must be affine.");
 
     if (!isValid() || !transform.isAffine())
     {
@@ -301,7 +317,7 @@ Bounds3 Bounds3::transformed(const MyMath::Matrix4& transform) const
 
     Bounds3 result;
 
-    for (int cornerIndex = 0; cornerIndex < CornerCount; ++cornerIndex)
+    for (std::size_t cornerIndex = 0; cornerIndex < CornerCount; ++cornerIndex)
     {
         result.include(transform.transformPoint(corner(cornerIndex)));
     }

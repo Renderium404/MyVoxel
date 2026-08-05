@@ -48,13 +48,20 @@ public:
     // 返回当前Shape的局部轴对齐包围盒。
     Bounds3 localBounds() const;
 
-    /// 空间查询
+    /// 标准空间查询
 
     // 判断指定局部坐标点是否位于Shape内部或边界上。
     bool containsLocalPoint(const MyMath::Vector3& point) const;
 
     // 返回指定局部轴对齐包围盒与Shape之间的保守空间关系。
     ShapeRelation classifyLocalBounds(const Bounds3& bounds) const;
+
+    /// 快速空间查询
+
+    // 使用已经计算好的局部包围盒中心和半尺寸执行保守分类。
+    //
+    // 调用者必须保证center有限，extent有限且各分量非负。
+    ShapeRelation classifyLocalBoundsFast(const MyMath::Vector3& center, const MyMath::Vector3& extent) const;
 
 private:
     Foundation::RefPtr<const ShapeGeometry> m_geometry; // 当前Shape共享的不可变几何数据。

@@ -1,5 +1,7 @@
 #include "VoxelTreeCursor.h"
 
+#include "MyVoxel/Core/Mask/VoxelChildMask.h"
+
 namespace MyVoxel
 {
 
@@ -8,24 +10,24 @@ VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree)
     , m_nodeBlock(nullptr)
     , m_leafBlock(nullptr)
     , m_coarseCorner(VoxelCorner::Minimum)
-    , m_state(VoxelCursorState::Empty)
+    , m_state(VoxelState::Empty)
     , m_source(Source::Terminal)
 {
     assert(tree.isValid());
 
-    switch (tree.rootState)
+    switch (tree.m_rootState)
     {
-    case VoxelRootState::Empty:
-        m_state = VoxelCursorState::Empty;
+    case VoxelState::Empty:
+        m_state = VoxelState::Empty;
         return;
 
-    case VoxelRootState::Material:
-        m_state = VoxelCursorState::Material;
+    case VoxelState::Material:
+        m_state = VoxelState::Material;
         return;
 
-    case VoxelRootState::Subdivided:
-        m_nodeBlock = &tree.rootBlock;
-        m_state = VoxelCursorState::Subdivided;
+    case VoxelState::Subdivided:
+        m_nodeBlock = &tree.m_rootBlock;
+        m_state = VoxelState::Subdivided;
         m_source = Source::NodeBlock;
         return;
     }
@@ -33,7 +35,7 @@ VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree)
     assert(false);
 }
 
-VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree, VoxelCursorState state)
+VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree, VoxelState state)
     : m_tree(&tree)
     , m_nodeBlock(nullptr)
     , m_leafBlock(nullptr)
@@ -41,7 +43,7 @@ VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree, VoxelCursorState state)
     , m_state(state)
     , m_source(Source::Terminal)
 {
-    assert(state == VoxelCursorState::Empty || state == VoxelCursorState::Material);
+    assert(state == VoxelState::Empty || state == VoxelState::Material);
 }
 
 VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree, const VoxelNodeBlock& block)
@@ -49,7 +51,7 @@ VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree, const VoxelNodeBlock& bl
     , m_nodeBlock(&block)
     , m_leafBlock(nullptr)
     , m_coarseCorner(VoxelCorner::Minimum)
-    , m_state(VoxelCursorState::Subdivided)
+    , m_state(VoxelState::Subdivided)
     , m_source(Source::NodeBlock)
 {
 }
@@ -59,7 +61,7 @@ VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree, const VoxelLeafBlock& le
     , m_nodeBlock(nullptr)
     , m_leafBlock(&leafBlock)
     , m_coarseCorner(VoxelCorner::Minimum)
-    , m_state(VoxelCursorState::Subdivided)
+    , m_state(VoxelState::Subdivided)
     , m_source(Source::MaskLeaf)
 {
 }
@@ -69,52 +71,43 @@ VoxelTreeCursor::VoxelTreeCursor(const VoxelTree& tree, const VoxelLeafBlock& le
     , m_nodeBlock(nullptr)
     , m_leafBlock(&leafBlock)
     , m_coarseCorner(coarseCorner)
-    , m_state(VoxelCursorState::Subdivided)
+    , m_state(VoxelState::Subdivided)
     , m_source(Source::MaskLeafGroup)
 {
-    const std::uint8_t coarseMask = maskBits(leafBlock.materialMask, coarseCorner);
-
-    assert(coarseMask != static_cast<std::uint8_t>(0));
-    assert(coarseMask != static_cast<std::uint8_t>(0xFFU));
+    assert(leafGroupState(leafBlock, coarseCorner) == VoxelState::Subdivided);
 }
 
-/// 节点状态
+/// 子体素读取
 
-VoxelCursorState VoxelTreeCursor::state() const
+VoxelChildStateMasks VoxelTreeCursor::childStateMasks() const
 {
-    return m_state;
-}
+    assert(m_tree);
 
-bool VoxelTreeCursor::isEmpty() const
-{
-    return m_state == VoxelCursorState::Empty;
-}
+    switch (m_source)
+    {
+    case Source::Terminal:
+        return uniformChildStateMasks(m_state);
 
-bool VoxelTreeCursor::isMaterial() const
-{
-    return m_state == VoxelCursorState::Material;
-}
+    case Source::NodeBlock:
+        assert(m_nodeBlock);
+        return nodeChildStateMasks(*m_nodeBlock);
 
-bool VoxelTreeCursor::isSubdivided() const
-{
-    return m_state == VoxelCursorState::Subdivided;
-}
+    case Source::MaskLeaf:
+        assert(m_leafBlock);
+        return leafChildStateMasks(*m_leafBlock);
 
-bool VoxelTreeCursor::isTerminal() const
-{
-    return m_state != VoxelCursorState::Subdivided;
-}
+    case Source::MaskLeafGroup:
+        assert(m_leafBlock);
+        return leafGroupChildStateMasks(*m_leafBlock, m_coarseCorner);
+    }
 
-bool VoxelTreeCursor::canAccessChildren() const
-{
-    return m_state == VoxelCursorState::Subdivided;
+    assert(false);
+    return uniformChildStateMasks(VoxelState::Empty);
 }
-
-/// 子节点访问
 
 VoxelTreeCursor VoxelTreeCursor::child(VoxelCorner corner) const
 {
-    assert(canAccessChildren());
+    assert(isSubdivided());
 
     switch (m_source)
     {
@@ -132,35 +125,18 @@ VoxelTreeCursor VoxelTreeCursor::child(VoxelCorner corner) const
     }
 
     assert(false);
-    return VoxelTreeCursor(*m_tree, VoxelCursorState::Empty);
+    return VoxelTreeCursor(*m_tree, VoxelState::Empty);
 }
 
-/// 底层存储
+/// 压缩材料读取
 
-bool VoxelTreeCursor::usesNodeBlock() const
+
+std::uint64_t VoxelTreeCursor::materialMask() const
 {
-    return m_source == Source::NodeBlock;
-}
-
-bool VoxelTreeCursor::usesMaskLeaf() const
-{
-    return m_source == Source::MaskLeaf || m_source == Source::MaskLeafGroup;
-}
-
-const VoxelNodeBlock& VoxelTreeCursor::nodeBlock() const
-{
-    assert(usesNodeBlock());
-    assert(m_nodeBlock);
-
-    return *m_nodeBlock;
-}
-
-const VoxelLeafBlock& VoxelTreeCursor::maskLeaf() const
-{
-    assert(usesMaskLeaf());
+    assert(hasMaterialMask());
     assert(m_leafBlock);
 
-    return *m_leafBlock;
+    return m_leafBlock->materialMask;
 }
 
 /// 内部辅助
@@ -168,34 +144,34 @@ const VoxelLeafBlock& VoxelTreeCursor::maskLeaf() const
 VoxelTreeCursor VoxelTreeCursor::nodeChild(VoxelCorner corner) const
 {
     assert(m_tree);
-    assert(m_tree->blockPool);
+    assert(m_tree->m_blockPool);
     assert(m_nodeBlock);
 
-    const VoxelState currentState = childState(*m_nodeBlock, corner);
+    const VoxelNodeState currentState = nodeState(*m_nodeBlock, corner);
 
     switch (currentState)
     {
-    case VoxelState::Empty:
-        return VoxelTreeCursor(*m_tree, VoxelCursorState::Empty);
+    case VoxelNodeState::Empty:
+        return VoxelTreeCursor(*m_tree, VoxelState::Empty);
 
-    case VoxelState::Material:
-        return VoxelTreeCursor(*m_tree, VoxelCursorState::Material);
+    case VoxelNodeState::Material:
+        return VoxelTreeCursor(*m_tree, VoxelState::Material);
 
-    case VoxelState::Branch:
+    case VoxelNodeState::Branch:
     {
         const VoxelIndex index = childStorageIndex(*m_nodeBlock, corner);
-        return VoxelTreeCursor(*m_tree, m_tree->blockPool->node(index));
+        return VoxelTreeCursor(*m_tree, m_tree->m_blockPool->node(index));
     }
 
-    case VoxelState::MaskLeaf:
+    case VoxelNodeState::MaskLeaf:
     {
         const VoxelIndex index = childStorageIndex(*m_nodeBlock, corner);
-        return VoxelTreeCursor(*m_tree, m_tree->blockPool->leaf(index));
+        return VoxelTreeCursor(*m_tree, m_tree->m_blockPool->leaf(index));
     }
     }
 
     assert(false);
-    return VoxelTreeCursor(*m_tree, VoxelCursorState::Empty);
+    return VoxelTreeCursor(*m_tree, VoxelState::Empty);
 }
 
 VoxelTreeCursor VoxelTreeCursor::maskLeafChild(VoxelCorner corner) const
@@ -203,16 +179,11 @@ VoxelTreeCursor VoxelTreeCursor::maskLeafChild(VoxelCorner corner) const
     assert(m_tree);
     assert(m_leafBlock);
 
-    const std::uint8_t coarseMask = maskBits(m_leafBlock->materialMask, corner);
+    const VoxelState childState = leafGroupState(*m_leafBlock, corner);
 
-    if (coarseMask == static_cast<std::uint8_t>(0))
+    if (childState == VoxelState::Empty || childState == VoxelState::Material)
     {
-        return VoxelTreeCursor(*m_tree, VoxelCursorState::Empty);
-    }
-
-    if (coarseMask == static_cast<std::uint8_t>(0xFFU))
-    {
-        return VoxelTreeCursor(*m_tree, VoxelCursorState::Material);
+        return VoxelTreeCursor(*m_tree, childState);
     }
 
     return VoxelTreeCursor(*m_tree, *m_leafBlock, corner);
@@ -224,7 +195,9 @@ VoxelTreeCursor VoxelTreeCursor::maskLeafGroupChild(VoxelCorner corner) const
     assert(m_leafBlock);
 
     const bool material = maskBit(m_leafBlock->materialMask, m_coarseCorner, corner);
-    return VoxelTreeCursor(*m_tree, material ? VoxelCursorState::Material : VoxelCursorState::Empty);
+    return VoxelTreeCursor(*m_tree, material ? VoxelState::Material : VoxelState::Empty);
 }
 
 }
+
+

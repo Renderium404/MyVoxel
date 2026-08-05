@@ -18,7 +18,7 @@ VoxelTreeAccessor::VoxelTreeAccessor(const VoxelTree& tree, const VoxelCellAddre
     , m_rootAddress(rootAddress)
     , m_targetAddress(rootAddress)
     , m_maximumLevel(maximumLevel)
-    , m_state(VoxelCursorState::Empty)
+    , m_state(VoxelState::Empty)
     , m_reusedLevel(BaseVoxelLevel)
     , m_visitedNodeCount(0)
 {
@@ -31,12 +31,12 @@ VoxelTreeAccessor::VoxelTreeAccessor(const VoxelTree& tree, const VoxelCellAddre
 
 /// 地址定位
 
-VoxelCursorState VoxelTreeAccessor::seek(const VoxelCellAddress& address)
+VoxelState VoxelTreeAccessor::seek(const VoxelCellAddress& address)
 {
     MYVOXEL_REQUIRE_MESSAGE(address.level <= m_maximumLevel, "Target voxel address exceeds the configured maximum level.");
-    MYVOXEL_REQUIRE_MESSAGE(rootAddressOf(address) == m_rootAddress, "Target voxel address does not belong to this VoxelTree root.");
+    MYVOXEL_REQUIRE_MESSAGE(MyVoxel::rootCellAddress(address) == m_rootAddress, "Target voxel address does not belong to this VoxelTree root.");
 
-    buildCornerPath(address, m_targetCorners);
+    MyVoxel::buildCornerPath(m_rootAddress, address, m_targetCorners);
 
     std::size_t commonCornerCount = 0;
     const std::size_t comparableCount = std::min(m_cachedCorners.size(), m_targetCorners.size());
@@ -47,7 +47,9 @@ VoxelCursorState VoxelTreeAccessor::seek(const VoxelCellAddress& address)
     }
 
     m_cachedCorners.resize(commonCornerCount);
-    m_path.resize(commonCornerCount + 1);
+    m_path.erase(
+        m_path.begin() + static_cast<std::ptrdiff_t>(commonCornerCount + 1),
+        m_path.end());
 
     m_targetAddress = address;
     m_reusedLevel = m_path.back().address.level;
@@ -106,7 +108,7 @@ const VoxelCellAddress& VoxelTreeAccessor::resolvedAddress() const
     return m_path.back().address;
 }
 
-VoxelCursorState VoxelTreeAccessor::state() const
+VoxelState VoxelTreeAccessor::state() const
 {
     return m_state;
 }
@@ -142,34 +144,6 @@ std::size_t VoxelTreeAccessor::visitedNodeCount() const
 std::size_t VoxelTreeAccessor::cachedNodeCount() const
 {
     return m_path.size();
-}
-
-/// 内部辅助
-
-VoxelCellAddress VoxelTreeAccessor::rootAddressOf(VoxelCellAddress address)
-{
-    while (hasParentCell(address))
-    {
-        address = parentCellAddress(address);
-    }
-
-    return address;
-}
-
-void VoxelTreeAccessor::buildCornerPath(const VoxelCellAddress& address, std::vector<VoxelCorner>& path)
-{
-    path.clear();
-    path.reserve(static_cast<std::size_t>(address.level));
-
-    VoxelCellAddress currentAddress = address;
-
-    while (hasParentCell(currentAddress))
-    {
-        path.push_back(childCornerInParent(currentAddress));
-        currentAddress = parentCellAddress(currentAddress);
-    }
-
-    std::reverse(path.begin(), path.end());
 }
 
 }

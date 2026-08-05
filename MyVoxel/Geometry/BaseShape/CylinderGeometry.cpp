@@ -1,6 +1,7 @@
 #include "CylinderGeometry.h"
 
 #include <algorithm>
+#include <cmath>
 #include <limits>
 
 #include "MyVoxel/Foundation/Diagnostic.h"
@@ -15,6 +16,12 @@ bool isFinitePositive(double value)
 {
     const double infinity = std::numeric_limits<double>::infinity();
     return value == value && value != infinity && value != -infinity && value > 0.0;
+}
+
+// 判断半尺寸是否为有限非负数据。
+bool isValidExtent(const MyMath::Vector3& extent)
+{
+    return extent.isFinite() && extent.x() >= 0.0 && extent.y() >= 0.0 && extent.z() >= 0.0;
 }
 
 // 返回坐标原点到闭区间的最短距离。
@@ -51,8 +58,7 @@ CylinderGeometry::CylinderGeometry(double radius, double height)
     , m_radiusSquared(radius * radius)
     , m_height(height)
     , m_halfHeight(height * HalfScale)
-    , m_bounds(MyMath::Vector3(-radius, -radius, -height * HalfScale),
-               MyMath::Vector3(radius, radius, height * HalfScale))
+    , m_bounds(MyMath::Vector3(-radius, -radius, -height * HalfScale), MyMath::Vector3(radius, radius, height * HalfScale))
 {
     MYVOXEL_ASSERT_MESSAGE(isFinitePositive(radius), "CylinderGeometry radius must be finite and greater than zero.");
     MYVOXEL_ASSERT_MESSAGE(isFinitePositive(height), "CylinderGeometry height must be finite and greater than zero.");
@@ -82,7 +88,7 @@ Bounds3 CylinderGeometry::localBounds() const
     return m_bounds;
 }
 
-/// 空间查询
+/// 标准空间查询
 
 bool CylinderGeometry::containsLocalPoint(const MyMath::Vector3& point) const
 {
@@ -131,6 +137,8 @@ ShapeRelation CylinderGeometry::classifyLocalBounds(const Bounds3& bounds) const
 
     return ShapeRelation::Intersecting;
 }
+
+
 
 }
 }

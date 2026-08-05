@@ -2,6 +2,17 @@
 
 #include "MyVoxel/Foundation/Diagnostic.h"
 
+namespace
+{
+
+// 判断半尺寸是否为有限非负数据。
+bool isValidExtent(const MyMath::Vector3& extent)
+{
+    return extent.isFinite() && extent.x() >= 0.0 && extent.y() >= 0.0 && extent.z() >= 0.0;
+}
+
+}
+
 namespace MyVoxel
 {
 namespace Geometry
@@ -59,7 +70,7 @@ Bounds3 Shape::localBounds() const
     return bounds;
 }
 
-/// 空间查询
+/// 标准空间查询
 
 bool Shape::containsLocalPoint(const MyMath::Vector3& point) const
 {
@@ -73,6 +84,16 @@ ShapeRelation Shape::classifyLocalBounds(const Bounds3& bounds) const
     MYVOXEL_ASSERT_MESSAGE(isValid(), "Cannot query an invalid Shape.");
     MYVOXEL_ASSERT_MESSAGE(bounds.isValid(), "Shape query bounds must be valid.");
     return m_geometry->classifyLocalBounds(bounds);
+}
+
+/// 快速空间查询
+
+ShapeRelation Shape::classifyLocalBoundsFast(const MyMath::Vector3& center, const MyMath::Vector3& extent) const
+{
+    MYVOXEL_ASSERT_MESSAGE(isValid(), "Cannot query an invalid Shape.");
+    MYVOXEL_ASSERT_MESSAGE(center.isFinite(), "Shape query bounds center must be finite.");
+    MYVOXEL_ASSERT_MESSAGE(isValidExtent(extent), "Shape query bounds extent must be finite and non-negative.");
+    return m_geometry->classifyLocalBoundsFast(center, extent);
 }
 
 }

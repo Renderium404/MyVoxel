@@ -31,13 +31,14 @@ public:
     // 返回圆柱体局部轴对齐包围盒。
     Bounds3 localBounds() const override;
 
-    /// 空间查询
+    /// 标准空间查询
 
     // 判断指定局部坐标点是否位于圆柱体内部或边界上。
     bool containsLocalPoint(const MyMath::Vector3& point) const override;
 
     // 返回指定局部轴对齐包围盒与圆柱体之间的保守空间关系。
     ShapeRelation classifyLocalBounds(const Bounds3& bounds) const override;
+
 
 protected:
     // 通过侵入式引用计数管理标准圆柱体生命周期。

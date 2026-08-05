@@ -36,15 +36,39 @@ enum class VoxelCorner : std::uint8_t
     MaximumXYZ = 7 // 使用X、Y、Z三个方向的最大坐标。
 };
 
-// 表示父节点记录的子节点状态，不表示当前VoxelNodeBlock自身的状态。
+// 逻辑状态：表示逻辑体素对外呈现的状态。
 enum class VoxelState : std::uint8_t
 {
-    Empty = 0,              // 子节点为空，不占用存储槽。
-    Material = 1,           // 子节点完全包含材料，不占用存储槽。
-    Branch = 2,             // 子节点为普通分支节点，占用一个VoxelNodeBlock存储槽。
-    MaskLeaf = 3            // 子节点为掩码叶节点，占用一个VoxelLeafBlock存储槽。
+    Empty = 0,              // 当前逻辑体素为空。
+    Material = 1,           // 当前逻辑体素完全包含材料。
+    Subdivided = 2          // 当前逻辑体素已经细分。
 };
 
+// 物理状态：表示VoxelNodeBlock中记录的直接子节点存储状态。
+enum class VoxelNodeState : std::uint8_t
+{
+    Empty = 0,              // 子节点为空，不占用物理槽。
+    Material = 1,           // 子节点完全包含材料，不占用物理槽。
+    Branch = 2,             // 子节点使用VoxelNodeBlock物理槽。
+    MaskLeaf = 3            // 子节点使用VoxelLeafBlock物理槽。
+};
+// 将节点存储状态转换为逻辑体素状态。
+inline VoxelState voxelState(VoxelNodeState state)
+{
+    switch (state)
+    {
+    case VoxelNodeState::Empty:
+        return VoxelState::Empty;
+
+    case VoxelNodeState::Material:
+        return VoxelState::Material;
+
+    case VoxelNodeState::Branch:
+    case VoxelNodeState::MaskLeaf:
+        return VoxelState::Subdivided;
+    }
+    return VoxelState::Empty;
+}
 }
 
 #endif // MYVOXEL_CORE_VOXELTYPES_H

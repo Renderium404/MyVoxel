@@ -23,8 +23,17 @@ ReferenceCounted::~ReferenceCounted()
 
 void ReferenceCounted::addReference() const
 {
-    const std::size_t previousCount = m_referenceCount.fetch_add(1, std::memory_order_relaxed);
-    MYVOXEL_REQUIRE_MESSAGE(previousCount < std::numeric_limits<std::size_t>::max(), "ReferenceCounted reference count overflow.");
+    std::size_t currentCount = m_referenceCount.load(std::memory_order_relaxed);
+
+    while (true)
+    {
+        MYVOXEL_REQUIRE_MESSAGE(currentCount < std::numeric_limits<std::size_t>::max(), "ReferenceCounted reference count overflow.");
+
+        if (m_referenceCount.compare_exchange_weak(currentCount, currentCount + 1, std::memory_order_relaxed, std::memory_order_relaxed))
+        {
+            return;
+        }
+    }
 }
 
 void ReferenceCounted::releaseReference() const

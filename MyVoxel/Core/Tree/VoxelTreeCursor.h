@@ -4,65 +4,41 @@
 #include <cassert>
 #include <cstdint>
 
+#include "MyVoxel/Core/Tree/VoxelChildStateMasks.h"
+
 #include "VoxelTree.h"
 
 namespace MyVoxel
 {
 
-// 表示游标当前逻辑体素的状态，不描述底层物理存储类型。
-enum class VoxelCursorState : std::uint8_t
-{
-    Empty = 0, // 当前逻辑体素为空。
-    Material = 1, // 当前逻辑体素完全包含材料。
-    Subdivided = 2 // 当前逻辑体素已经细分，允许继续访问八个子体素。
-};
-
-// 在只读体素树中访问普通节点、掩码叶块及掩码叶块内部逻辑节点。
+// 在只读体素树中访问逻辑体素及其直接子体素。
 class VoxelTreeCursor
 {
 public:
-    // 使用指定只读体素树创建根节点游标。
+    // 使用指定只读体素树创建根体素游标。
     explicit VoxelTreeCursor(const VoxelTree& tree);
+    /// 体素状态
 
-    /// 节点状态
 
-    // 返回当前逻辑体素状态。
-    VoxelCursorState state() const;
 
-    // 判断当前逻辑体素是否为空。
-    bool isEmpty() const;
+    VoxelState state() const{return m_state;}
+    bool isEmpty() const{return m_state == VoxelState::Empty;}
+    bool isMaterial() const{return m_state == VoxelState::Material;}
+    bool isSubdivided() const{return m_state == VoxelState::Subdivided;}
+    bool isTerminal() const{return m_state != VoxelState::Subdivided;}
 
-    // 判断当前逻辑体素是否完全包含材料。
-    bool isMaterial() const;
-
-    // 判断当前逻辑体素是否已经细分。
-    bool isSubdivided() const;
-
-    // 判断当前逻辑体素是否为终止体素。
-    bool isTerminal() const;
-
-    // 判断当前逻辑体素是否允许继续访问八个子体素。
-    bool canAccessChildren() const;
-
-    /// 子节点访问
-
-    // 返回指定角点对应的直接逻辑子体素游标。
+    /// 子体素读取
+    // 一次返回当前逻辑体素八个直接子体素的状态掩码。
+    // Empty或Material体素不会实际细分，而是返回八个继承当前状态的虚拟子体素。
+    VoxelChildStateMasks childStateMasks() const;
+    // 返回指定角点对应的直接逻辑子体素游标，当前体素必须已经细分。
     VoxelTreeCursor child(VoxelCorner corner) const;
 
-    /// 底层存储
-
-    // 判断当前逻辑体素是否直接使用普通节点块描述子体素。
-    bool usesNodeBlock() const;
-
-    // 判断当前逻辑体素是否位于掩码叶块中。
-    bool usesMaskLeaf() const;
-
-    // 返回当前逻辑体素使用的普通节点块。
-    const VoxelNodeBlock& nodeBlock() const;
-
-    // 返回当前逻辑体素使用的掩码叶块。
-    const VoxelLeafBlock& maskLeaf() const;
-
+    /// 压缩材料读取
+    // 判断当前逻辑体素是否直接具有覆盖后两层的64位材料掩码。
+    bool hasMaterialMask() const{ return m_source == Source::MaskLeaf;}
+    // 返回当前逻辑体素覆盖后两层的64位材料掩码。
+    std::uint64_t materialMask() const;
 private:
     // 表示当前游标使用的底层数据来源。
     enum class Source : std::uint8_t
@@ -75,24 +51,18 @@ private:
 
 private:
     // 创建空或材料终止游标。
-    VoxelTreeCursor(const VoxelTree& tree, VoxelCursorState state);
-
+    VoxelTreeCursor(const VoxelTree& tree, VoxelState state);
     // 创建使用普通节点块的已细分游标。
     VoxelTreeCursor(const VoxelTree& tree, const VoxelNodeBlock& block);
-
     // 创建掩码叶块入口游标。
     VoxelTreeCursor(const VoxelTree& tree, const VoxelLeafBlock& leafBlock);
-
     // 创建掩码叶块内部粗层节点游标。
     VoxelTreeCursor(const VoxelTree& tree, const VoxelLeafBlock& leafBlock, VoxelCorner coarseCorner);
-
     // 根据普通节点记录的子节点状态创建游标。
     VoxelTreeCursor nodeChild(VoxelCorner corner) const;
-
     // 返回掩码叶块入口的粗层子节点游标。
     VoxelTreeCursor maskLeafChild(VoxelCorner corner) const;
-
-    // 返回掩码叶块粗层节点中的最高层子体素游标。
+    // 返回掩码叶块粗层节点中的细层子体素游标。
     VoxelTreeCursor maskLeafGroupChild(VoxelCorner corner) const;
 
 private:
@@ -100,7 +70,7 @@ private:
     const VoxelNodeBlock* m_nodeBlock; // 当前使用的普通节点块。
     const VoxelLeafBlock* m_leafBlock; // 当前使用的掩码叶块。
     VoxelCorner m_coarseCorner; // 当前掩码叶块粗层节点对应的角点。
-    VoxelCursorState m_state; // 当前逻辑体素状态。
+    VoxelState m_state; // 当前逻辑体素状态。
     Source m_source; // 当前逻辑体素的底层数据来源。
 };
 
