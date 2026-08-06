@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cstdlib>
 #include <new>
-
+#include <utility>
 #ifdef _MSC_VER
 #include <malloc.h>
 #endif
@@ -138,7 +138,17 @@ void VolumeBlockPool::clear()
     m_highWaterBlockCount = 0;
     m_allocatedBlockCount = 0;
 }
+void VolumeBlockPool::swap(VolumeBlockPool& other)
+{
+    if (this == &other) return;
 
+    m_chunks.swap(other.m_chunks);
+    m_freeBlockIndexes.swap(other.m_freeBlockIndexes);
+    m_blockAllocated.swap(other.m_blockAllocated);
+    std::swap(m_nextBlockIndex, other.m_nextBlockIndex);
+    std::swap(m_highWaterBlockCount, other.m_highWaterBlockCount);
+    std::swap(m_allocatedBlockCount, other.m_allocatedBlockCount);
+}
 /// 距离块初始化与访问
 
 VolumeBlock& VolumeBlockPool::initializeBlock(VoxelIndex index, float distance)

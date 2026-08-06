@@ -6,27 +6,25 @@
 #include <vector>
 
 #include "MyMath/Vector3.h"
-
 #include "MyVoxel/Core/VoxelGrid.h"
-
 #include "CellMeshingState.h"
 
 namespace MyVoxel
 {
 
-class LevelSetVolume;
+class VolumeFieldView;
 
 namespace Meshing
 {
 
-// 保存一次有限标量场网格提取过程中的连续临时状态。
+// 保存一次有限距离场区域网格提取过程中的连续临时状态。
 //
 // 工作区保存采样点符号、单元符号掩码、活动单元状态和懒计算梯度。
-// 同一个工作区可以重复用于范围一致的距离场网格提取。
+// 同一个工作区可以重复用于范围一致的VoxelShape距离场网格提取。
 class VolumeMeshingWorkspace
 {
 public:
-    // 根据标量场采样范围创建对应的采样与单元工作区。
+    // 根据距离场最高层采样范围创建对应的采样与单元工作区。
     explicit VolumeMeshingWorkspace(const VoxelCellRange& sampleRange);
 
     /// 状态判断
@@ -45,7 +43,7 @@ public:
 
     /// 工作区属性
 
-    // 返回工作区覆盖的采样点范围。
+    // 返回工作区覆盖的最高层采样点范围。
     const VoxelCellRange& sampleRange() const;
 
     // 返回工作区覆盖的网格单元范围。
@@ -104,8 +102,8 @@ public:
 
     /// 梯度访问
 
-    // 返回指定采样点的中心差分梯度，第一次访问时计算并缓存。
-    MyMath::Vector3 gradient(const LevelSetVolume& volume, const VoxelCellIndex& index);
+    // 返回指定采样点的中心差分梯度，第一次访问时从VolumeFieldView计算并缓存。
+    MyMath::Vector3 gradient(const VolumeFieldView& view, const VoxelCellIndex& index);
 
     /// 生命周期
 

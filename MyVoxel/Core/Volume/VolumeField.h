@@ -1,5 +1,5 @@
-#ifndef MYVOXEL_CORE_VOLUMEFIELD_H
-#define MYVOXEL_CORE_VOLUMEFIELD_H
+#ifndef MYVOXEL_CORE_VOLUME_VOLUMEFIELD_H
+#define MYVOXEL_CORE_VOLUME_VOLUMEFIELD_H
 
 #include <cstddef>
 #include <map>
@@ -50,6 +50,17 @@ public:
 
     // 判断指定逻辑叶区是否处于失效状态。
     bool isBlockDirty(const VoxelCellAddress& blockAddress) const;
+
+    /// 距离范围
+
+    // 返回窄带之外材料内部使用的固定负距离。
+    float interiorBackgroundDistance() const;
+
+    // 返回窄带之外材料外部使用的固定正距离。
+    float exteriorBackgroundDistance() const;
+
+    // 设置窄带之外使用的内部负距离和外部正距离，并将整个距离场标记为失效。
+    void setBackgroundDistances(float interiorDistance, float exteriorDistance);
 
     /// 距离场层级
 
@@ -118,6 +129,9 @@ public:
     // 清空全部逻辑距离块并释放块池存储，结果保持完全失效。
     void releaseStorage();
 
+    // 与采样层级相同的另一个距离场交换全部距离块、背景距离和有效状态。
+    void swap(VolumeField& other);
+
     /// 存储统计与遍历
 
     // 返回当前稀疏距离块数量。
@@ -144,14 +158,16 @@ private:
     BlockIndexMap::const_iterator findBlockIterator(const VoxelCellAddress& blockAddress) const;
 
 private:
-    VoxelLevel m_sampleLevel;           // 距离样本所在的最高体素层级。
-    VoxelLevel m_blockLevel;            // 逻辑叶区所在层级，固定为sampleLevel-2。
-    VolumeBlockPool m_blockPool;        // 保存全部实际分配距离块的独立物理块池。
-    BlockIndexMap m_blockIndices;       // 逻辑叶区索引到物理距离块索引的稀疏映射。
-    DirtyBlockSet m_dirtyBlocks;        // 当前需要局部重建的逻辑叶区索引。
-    bool m_completelyDirty;             // 整个距离场是否失效并需要完整重建。
+    VoxelLevel m_sampleLevel; // 距离样本所在的最高体素层级。
+    VoxelLevel m_blockLevel; // 逻辑叶区所在层级，固定为sampleLevel-2。
+    VolumeBlockPool m_blockPool; // 保存全部实际分配距离块的独立物理块池。
+    BlockIndexMap m_blockIndices; // 逻辑叶区索引到物理距离块索引的稀疏映射。
+    DirtyBlockSet m_dirtyBlocks; // 当前需要局部重建的逻辑叶区索引。
+    float m_interiorBackgroundDistance; // 窄带之外材料内部使用的固定负距离。
+    float m_exteriorBackgroundDistance; // 窄带之外材料外部使用的固定正距离。
+    bool m_completelyDirty; // 整个距离场是否失效并需要完整重建。
 };
 
 }
 
-#endif // MYVOXEL_CORE_VOLUMEFIELD_H
+#endif // MYVOXEL_CORE_VOLUME_VOLUMEFIELD_H

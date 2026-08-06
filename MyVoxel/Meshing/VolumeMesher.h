@@ -1,17 +1,20 @@
 #ifndef MYVOXEL_MESHING_VOLUMEMESHER_H
 #define MYVOXEL_MESHING_VOLUMEMESHER_H
 
+#include "MyVoxel/Core/VoxelGrid.h"
 #include "MyVoxel/Geometry/Mesh/Mesh.h"
-#include "MyVoxel/Volume/LevelSetVolume.h"
 
 namespace MyVoxel
 {
+
+class VolumeFieldView;
+
 namespace Meshing
 {
 
 class VolumeMeshingWorkspace;
 
-// 指定标量体到网格的顶点生成方式。
+// 指定距离场到网格的顶点生成方式。
 enum class VolumeMeshingMode
 {
     StandardSurfaceNets, // 使用各边组交点平均值生成顶点。
@@ -35,14 +38,14 @@ enum class VolumeSamplingMode
 // 指定单元符号掩码的获取方式。
 enum class VolumeSignMode
 {
-    StandardDirect, // 每个单元直接读取八个标量值并生成符号掩码。
+    StandardDirect, // 每个单元直接读取八个距离值并生成符号掩码。
     FastPrecomputed // 每个采样点只读取一次符号，再预计算全部单元符号掩码。
 };
 
-// 控制有限标量场到统一三角网格的网格化过程。
+// 控制当前VoxelShape稀疏距离场到统一三角网格的网格化过程。
 struct VolumeMeshingOptions
 {
-    double isoValue = 0.0; // 需要提取的标量等值面。
+    double isoValue = 0.0; // 需要提取的距离等值面，必须位于内部和外部背景距离之间。
     Geometry::MeshColor color; // 输出三角形统一使用的颜色。
     VolumeMeshingMode mode = VolumeMeshingMode::StandardSurfaceNets; // 顶点定位模式。
     VolumeTopologyMode topologyMode = VolumeTopologyMode::FastLookup; // 默认使用快速拓扑表。
@@ -50,16 +53,22 @@ struct VolumeMeshingOptions
     VolumeSignMode signMode = VolumeSignMode::FastPrecomputed; // 默认预计算采样符号和单元符号掩码。
 };
 
-// 从有限标量距离场中生成统一多边组Surface Nets三角网格。
+// 从VoxelShape当前有效稀疏距离场中生成统一多边组Surface Nets三角网格。
 class VolumeMesher
 {
 public:
-    // 使用内部临时工作区从指定距离场生成等值面网格。
-    static Geometry::Mesh build(const LevelSetVolume& volume, const VolumeMeshingOptions& options = VolumeMeshingOptions());
+    // 根据全部已分配VolumeBlock推导最高层采样范围，并在六个方向扩展一个样本；空距离场返回无效范围。
+    static VoxelCellRange defaultSampleRange(const VolumeFieldView& view);
 
-    // 使用调用者提供的连续工作区生成等值面网格，工作区范围必须与距离场一致。
-    static Geometry::Mesh buildWithWorkspace(const LevelSetVolume& volume,
-                                             VolumeMeshingWorkspace& workspace,
+    // 使用自动推导的全量采样范围生成等值面网格；非空Shape必须具有已分配距离块。
+    static Geometry::Mesh build(const VolumeFieldView& view, const VolumeMeshingOptions& options = VolumeMeshingOptions());
+
+    // 使用调用者指定的有限最高层采样范围生成等值面网格。
+    static Geometry::Mesh build(const VolumeFieldView& view, const VoxelCellRange& sampleRange,
+                                const VolumeMeshingOptions& options = VolumeMeshingOptions());
+
+    // 使用调用者提供的连续工作区生成等值面网格，工作区范围决定本次网格化区域。
+    static Geometry::Mesh buildWithWorkspace(const VolumeFieldView& view, VolumeMeshingWorkspace& workspace,
                                              const VolumeMeshingOptions& options = VolumeMeshingOptions());
 
 private:

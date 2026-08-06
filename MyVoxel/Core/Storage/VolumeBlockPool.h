@@ -38,7 +38,8 @@ public:
     void rewind();
     // 清空全部Chunk、空闲块和分配状态。
     void clear();
-
+    // 交换两个距离块池持有的全部存储和分配状态。
+    void swap(VolumeBlockPool& other);
     /// 距离块初始化与访问
     // 将指定已分配距离块的全部样本初始化为同一距离值。
     VolumeBlock& initializeBlock(VoxelIndex index, float distance = 0.0f);

@@ -4,62 +4,37 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
-#include <memory>
-#include <vector>
 
+#include <QAtomicInt>
 #include <QMatrix4x4>
+#include <QMutex>
 #include <QOpenGLShaderProgram>
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLWidget>
 #include <QPoint>
+#include <QSize>
+#include <QString>
 #include <QVector3D>
 
-#include "MyVoxel/Geometry/Mesh/Mesh.h"
-#include "MyVoxel/Surface/VoxelSurfaceCache.h"
+#include "VoxelRenderThread.h"
+#include "VoxelRenderTypes.h"
 
 class QKeyEvent;
 class QMouseEvent;
+class QOffscreenSurface;
+class QOpenGLContext;
 class QOpenGLFunctions_3_3_Core;
 class QWheelEvent;
 
 namespace MyVoxelViewer
 {
 
-typedef std::uint64_t MeshObjectId;
-
-// 保存最近一次体素方向分片同步的阶段耗时和资源更新数量。
-struct MeshUpdateStatistics
-{
-    MeshUpdateStatistics();
-
-    // 清空全部阶段耗时和计数。
-    void clear();
-
-    // 累加另一次方向分片同步统计。
-    void add(const MeshUpdateStatistics& other);
-
-    double totalMilliseconds; // updateRootMeshes入口到提交重绘请求的总耗时。
-    double cacheAndVersionMilliseconds; // 缓存查找、方向版本判断、映射维护和包围范围更新耗时。
-    double cpuStagingCopyMilliseconds; // OpenGL尚未初始化时暂存CPU Mesh副本的耗时。
-    double contextAcquireMilliseconds; // 获取当前OpenGL上下文的耗时。
-    double vertexExpansionMilliseconds; // 将索引网格展开为逐顶点OpenGL数据的耗时。
-    double gpuUploadMilliseconds; // 创建或复用GPU资源并上传顶点数据的耗时。
-    double gpuRemovalMilliseconds; // 删除失效GPU方向分片资源的耗时。
-    double contextReleaseMilliseconds; // 释放当前OpenGL上下文的耗时。
-
-    std::size_t uploadedPartCount; // 本次实际上传的非空方向分片数量。
-    std::size_t removedPartCount; // 本次实际删除的非空方向分片数量。
-    std::size_t createdGpuPartCount; // 本次新建VAO和VBO的方向分片数量。
-    std::size_t reusedGpuPartCount; // 本次复用已有VAO和VBO的方向分片数量。
-    std::size_t stagedCpuPartCount; // OpenGL尚未初始化时暂存的CPU方向分片数量。
-};
-
-// 使用OpenGL 3.3显示多个相互独立的三角网格对象。
+// 使用GUI线程呈现后台共享颜色纹理，并将网格同步和完整场景绘制交给独立OpenGL线程。
 //
-// 每个对象具有独立模型矩阵、可见状态和一个或多个网格分片。
-// 普通连续几何对象只包含一个分片，体素对象按Root与方向保存分片并支持方向级增量更新。
-// Mesh中的三角形颜色在上传时展开为逐顶点颜色，CPU侧仍保持逐三角形颜色语义。
-// OpenGL初始化后不保留体素方向CPU Mesh副本；上下文被外部重建时应重新调用setMeshCache提交完整缓存。
+// 普通网格和体素增量网格修改接口只生成不可变CPU快照并提交后台队列，不执行GUI OpenGL调用。
+// 调用方必须保证传入Mesh或VoxelSurfaceCache在对应接口返回前不被其他线程并发修改。
+// 相机、窗口生命周期和最终纹理呈现接口仍由当前控件所属GUI线程调用。
+// QOpenGLWidget上下文被外部重建后，调用方必须重新提交普通网格和完整VoxelSurfaceCache。
 class VoxelOpenGLWidget : public QOpenGLWidget
 {
 public:
@@ -71,39 +46,40 @@ public:
     // 返回无效网格对象标识。
     static MeshObjectId invalidMeshObjectId();
 
-    // 添加一个普通三角网格对象并返回对象标识。
+    // 添加一个普通三角网格对象并异步提交后台渲染，返回对象标识。
     MeshObjectId addMesh(const MyVoxel::Geometry::Mesh& mesh, const QMatrix4x4& modelMatrix = QMatrix4x4());
 
-    // 替换指定普通网格对象的数据，对象不存在或不是普通网格对象时返回false。
+    // 异步替换指定普通网格对象，对象不存在或不是普通网格对象时返回false。
     bool setMesh(MeshObjectId objectId, const MyVoxel::Geometry::Mesh& mesh);
 
-    // 添加一个支持根级增量更新的体素网格缓存对象并返回对象标识。
+    // 添加一个支持Root方向增量更新的体素网格缓存对象并异步提交后台渲染。
     MeshObjectId addMeshCache(const MyVoxel::VoxelSurfaceCache& cache, const QMatrix4x4& modelMatrix = QMatrix4x4());
 
-    // 使用完整缓存替换指定体素网格对象，对象不存在或不是体素网格对象时返回false。
+    // 使用完整缓存异步替换指定体素网格对象，对象不存在或不是体素网格对象时返回false。
     bool setMeshCache(MeshObjectId objectId, const MyVoxel::VoxelSurfaceCache& cache);
 
-    // 根据缓存更新指定体素对象的根集合，对象不存在或不是体素网格对象时返回false。
-    bool updateRootMeshes(MeshObjectId objectId,
-                          const MyVoxel::VoxelSurfaceCache& cache,
-                          const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices);
+    // 根据缓存版本生成指定Root的不可变分片快照并异步提交后台更新。
+    bool updateRootMeshes(MeshObjectId objectId, const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices);
 
-    // 设置指定对象的模型矩阵，不重新上传网格且不自动适应视图。
+    // 异步设置指定对象模型矩阵，不重新上传网格且不自动适应视图。
     bool setMeshObjectMatrix(MeshObjectId objectId, const QMatrix4x4& matrix);
 
-    // 返回指定对象的模型矩阵，对象不存在时返回空指针。
+    // 返回指定对象模型矩阵，对象不存在时返回空指针；不得与对象删除并发调用。
     const QMatrix4x4* meshObjectMatrix(MeshObjectId objectId) const;
 
-    // 设置指定对象是否参与绘制和场景包围范围计算。
+    // 将指定对象模型矩阵复制到输出参数，对象不存在时返回false。
+    bool meshObjectMatrix(MeshObjectId objectId, QMatrix4x4& matrix) const;
+
+    // 异步设置指定对象是否参与绘制和场景包围范围计算。
     bool setMeshObjectVisible(MeshObjectId objectId, bool visible);
 
     // 判断指定对象是否可见，对象不存在时返回false。
     bool isMeshObjectVisible(MeshObjectId objectId) const;
 
-    // 删除指定网格对象及其CPU和GPU资源，对象不存在时返回false。
+    // 异步删除指定网格对象及其后台GPU资源，对象不存在时返回false。
     bool removeMeshObject(MeshObjectId objectId);
 
-    // 清空全部网格对象及其CPU和GPU资源。
+    // 异步清空全部网格对象及其后台GPU资源。
     void clearMeshes();
 
     // 判断是否存在指定网格对象。
@@ -112,30 +88,33 @@ public:
     // 返回当前网格对象数量。
     std::size_t meshObjectCount() const;
 
-    // 返回指定对象的网格分片数量，对象不存在时返回0。
+    // 返回指定对象当前非空网格分片数量，对象不存在时返回0。
     std::size_t meshObjectPartCount(MeshObjectId objectId) const;
 
-    // 返回指定对象全部分片的三角形数量，对象不存在时返回0。
+    // 返回指定对象全部非空分片的三角形数量，对象不存在时返回0。
     std::size_t meshObjectTriangleCount(MeshObjectId objectId) const;
 
-    // 返回最近一次Root增量更新实际上传或删除的方向分片数量。
+    // 返回最近一次Root增量提交实际包含的上传或删除分片数量。
     std::size_t lastUpdatedMeshPartCount() const;
 
-    // 返回最近一次Root增量更新的显示同步阶段统计。
+    // 返回最近一张后台完成帧累计的网格同步和离屏绘制统计。
     const MeshUpdateStatistics& lastMeshUpdateStatistics() const;
+
+    // 返回最近一次后台OpenGL初始化或运行失败信息，无错误时返回空字符串。
+    const QString& backgroundRenderError() const;
 
     /// 单体素对象兼容入口
 
-    // 使用完整VoxelSurfaceCache替换默认体素对象并重新适应视图。
+    // 使用完整VoxelSurfaceCache异步替换默认体素对象并重新适应视图。
     void setMeshCache(const MyVoxel::VoxelSurfaceCache& cache);
 
-    // 根据缓存更新默认体素对象的指定根集合。
+    // 根据缓存异步更新默认体素对象的指定根集合。
     void updateRootMeshes(const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices);
 
-    // 返回默认体素对象当前保存的根网格数量。
+    // 返回默认体素对象当前保存的Root数量。
     std::size_t rootMeshCount() const;
 
-    // 设置默认体素对象的模型矩阵并重新适应视图。
+    // 设置默认体素对象模型矩阵并重新适应视图。
     void setModelMatrix(const QMatrix4x4& matrix);
 
     // 返回默认体素对象模型矩阵。
@@ -143,7 +122,7 @@ public:
 
     /// 显示模式
 
-    // 设置是否使用线框模式绘制全部网格对象。
+    // 异步设置是否使用线框模式绘制全部网格对象。
     void setWireframe(bool enabled);
 
     // 判断当前是否使用线框模式绘制。
@@ -151,7 +130,7 @@ public:
 
     /// 相机控制
 
-    // 重新计算全部可见对象的世界空间包围范围并适应窗口。
+    // 重新计算全部可见对象的世界空间包围范围并异步提交适应窗口后的相机。
     void fitAll();
 
     // 切换到等轴测观察方向。
@@ -167,6 +146,7 @@ public:
     void setRightView();
 
 protected:
+    bool event(QEvent* event) override;
     void initializeGL() override;
     void resizeGL(int width, int height) override;
     void paintGL() override;
@@ -178,81 +158,65 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
 
 private:
-    enum class MeshObjectKind
+    struct SceneObjectInfo
     {
-        Mesh,
-        MeshCache
+        typedef std::map<MeshPartIndex, std::uint64_t> PartVersionMap;
+        typedef std::map<MeshPartIndex, std::size_t> PartTriangleCountMap;
+
+        SceneObjectInfo(MeshObjectKind kindValue, const QMatrix4x4& modelMatrixValue);
+
+        MeshObjectKind kind; // 普通连续网格对象或体素增量网格对象。
+        QMatrix4x4 modelMatrix; // 对象局部空间到显示世界空间的模型矩阵。
+        bool visible; // 对象是否参与绘制和场景范围计算。
+        MyVoxel::Bounds3 localBounds; // 当前对象全部分片形成的局部轴对齐包围盒。
+        PartVersionMap partVersions; // 当前GUI侧已经提交的分片版本。
+        PartTriangleCountMap partTriangleCounts; // 当前GUI侧非空分片三角形数量。
+        std::uint64_t nextMeshVersion; // 普通网格完整替换使用的递增版本。
     };
 
-    struct MeshPartIndex;
-    struct RenderMesh;
-    struct MeshObject;
+    typedef std::map<MeshObjectId, SceneObjectInfo*> SceneObjectMap;
 
-    typedef std::map<MeshObjectId, std::unique_ptr<MeshObject>> MeshObjectMap;
+    /// CPU场景和快照
 
-    /// 对象管理
+    // 创建不含网格分片的GUI侧对象并返回对象标识，调用方必须持有场景互斥锁。
+    MeshObjectId createSceneObjectLocked(MeshObjectKind kind, const QMatrix4x4& modelMatrix);
 
-    // 创建一个不含网格分片的对象并返回对象标识。
-    MeshObjectId createMeshObject(MeshObjectKind kind, const QMatrix4x4& modelMatrix);
+    // 返回指定GUI侧可修改对象，调用方必须持有场景互斥锁。
+    SceneObjectInfo* findSceneObjectLocked(MeshObjectId objectId);
 
-    // 返回指定可修改对象，不存在时返回空指针。
-    MeshObject* findMeshObject(MeshObjectId objectId);
+    // 返回指定GUI侧只读对象，调用方必须持有场景互斥锁。
+    const SceneObjectInfo* findSceneObjectLocked(MeshObjectId objectId) const;
 
-    // 返回指定只读对象，不存在时返回空指针。
-    const MeshObject* findMeshObject(MeshObjectId objectId) const;
+    // 建立普通网格对象完整快照并同步GUI侧元数据，调用方必须持有场景互斥锁。
+    MeshObjectSnapshot buildMeshSnapshotLocked(MeshObjectId objectId, SceneObjectInfo& object, const MyVoxel::Geometry::Mesh& mesh);
 
-    // 使用一个普通网格替换对象全部分片。
-    void replaceObjectMesh(MeshObject& object, const MyVoxel::Geometry::Mesh& mesh);
+    // 建立体素缓存对象完整快照并同步GUI侧元数据，调用方必须持有场景互斥锁。
+    MeshObjectSnapshot buildMeshCacheSnapshotLocked(MeshObjectId objectId, SceneObjectInfo& object, const MyVoxel::VoxelSurfaceCache& cache);
 
-    // 使用完整体素缓存替换对象全部Root方向分片。
-    void replaceObjectMeshCache(MeshObject& object, const MyVoxel::VoxelSurfaceCache& cache);
+    /// 后台OpenGL生命周期
 
-    // 根据体素缓存版本更新对象中指定Root实际变化的方向分片，并返回上传或删除数量。
-    std::size_t updateObjectRootMeshes(
-        MeshObject& object,
-        const MyVoxel::VoxelSurfaceCache& cache,
-        const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices);
+    // 创建GUI线程最终纹理呈现Shader和VAO。
+    bool createPresentResources();
 
-    /// OpenGL资源
+    // 创建共享OpenGL上下文和离屏表面并启动后台渲染线程。
+    bool startBackgroundRenderer();
 
-    // 创建背景和网格表面Shader。
-    void createShaderPrograms();
+    // 结束后台渲染线程并在GUI线程释放共享上下文和离屏表面。
+    void stopBackgroundRenderer();
 
-    // 创建全屏背景三角形使用的VAO。
-    void createBackgroundResources();
+    // 释放当前QOpenGLWidget上下文相关资源，可由上下文销毁信号重复调用。
+    void cleanupOpenGL();
 
-    // 将一个CPU网格分片转换并上传到独立GPU缓冲区，已有分片复用原VAO和VBO。
-    void uploadMeshPart(MeshObject& object,
-                        const MeshPartIndex& partIndex,
-                        const MyVoxel::Geometry::Mesh& mesh,
-                        MeshUpdateStatistics* statistics = nullptr);
+    /// 相机和场景范围
 
-    // 删除指定对象的一个GPU网格分片。
-    void removeRenderMesh(MeshObject& object,
-                          const MeshPartIndex& partIndex,
-                          MeshUpdateStatistics* statistics = nullptr);
-
-    // 删除指定对象的全部GPU网格分片。
-    void clearObjectRenderMeshes(MeshObject& object);
-
-    // 删除全部对象的GPU网格分片。
-    void clearAllRenderMeshes();
-
-    /// 绘制
-
-    // 判断当前是否存在至少一个可见GPU网格分片。
-    bool hasVisibleRenderMeshes() const;
-
-    // 绘制渐变背景。
-    void drawBackground();
-
-    // 绘制全部可见网格对象。
-    void drawMeshObjects(const QVector3D& eye, const QVector3D& viewCenter);
-
-    /// 相机
-
-    // 根据全部可见CPU网格对象更新世界空间观察包围范围。
+    // 根据全部可见GUI侧对象更新世界空间观察包围范围。
     void updateBounds();
+
+    // 将当前相机和视口快照提交后台线程。
+    void submitCameraState();
+
+    // 在非GUI线程修改场景时向GUI事件队列合并提交一次包围范围更新。
+    void requestBoundsUpdate();
 
     // 返回当前由观察中心指向相机的单位方向。
     QVector3D cameraDirection() const;
@@ -264,29 +228,37 @@ private:
     QVector3D cameraUp() const;
 
 private:
-    bool m_initialized = false; // OpenGL上下文和共享资源是否已经初始化。
-    bool m_wireframe = false; // 是否以线框模式绘制全部网格对象。
+    mutable QMutex m_sceneMutex; // 保护GUI侧对象元数据和异步统计。
+    SceneObjectMap m_sceneObjects; // 对象标识到GUI侧轻量场景元数据的映射。
+    MeshObjectId m_nextMeshObjectId; // 下一个待分配网格对象标识，0保留为无效值。
+    MeshObjectId m_defaultVoxelObjectId; // 旧版单体素接口对应的默认对象标识。
+    std::size_t m_lastUpdatedMeshPartCount; // 最近一次Root增量提交的实际分片数量。
+    MeshUpdateStatistics m_lastMeshUpdateStatistics; // 最近一张后台完成帧累计同步统计。
+    QString m_backgroundRenderError; // 最近一次后台OpenGL失败信息。
+    QAtomicInt m_sceneBoundsEventPending; // 是否已经向GUI队列提交场景范围更新事件。
 
-    QOpenGLFunctions_3_3_Core* m_functions = nullptr; // 当前OpenGL 3.3 Core函数表。
-    QOpenGLShaderProgram m_backgroundProgram; // 全屏渐变背景Shader。
-    QOpenGLShaderProgram m_meshProgram; // 网格表面光照Shader。
-    QOpenGLVertexArrayObject m_backgroundVao; // Core Profile背景绘制使用的空VAO。
+    VoxelRenderThread* m_renderThread; // 独立共享OpenGL上下文后台线程。
+    QOpenGLContext* m_renderContext; // 与当前QOpenGLWidget上下文共享资源的后台上下文。
+    QOffscreenSurface* m_offscreenSurface; // 在GUI线程创建并供后台上下文使用的离屏表面。
 
-    MeshObjectMap m_meshObjects; // 对象标识到独立CPU和GPU网格对象的映射。
-    MeshObjectId m_nextMeshObjectId = 1; // 下一个待分配网格对象标识，0保留为无效值。
-    MeshObjectId m_defaultVoxelObjectId = 0; // 旧版单体素接口对应的默认对象标识。
-    std::size_t m_lastUpdatedMeshPartCount = 0; // 最近一次Root增量更新实际同步的方向分片数量。
-    MeshUpdateStatistics m_lastMeshUpdateStatistics; // 最近一次Root增量更新的显示同步阶段统计。
-    std::vector<float> m_uploadVertexData; // 方向分片展开为OpenGL逐顶点数据时复用的临时连续缓冲。
+    bool m_glInitialized; // GUI呈现Shader、VAO和后台线程是否完成初始化。
+    bool m_wireframe; // 当前提交后台的线框状态。
+    QOpenGLFunctions_3_3_Core* m_functions; // GUI当前OpenGL 3.3 Core函数表。
+    QOpenGLShaderProgram m_presentProgram; // 将后台共享颜色纹理绘制到QOpenGLWidget的Shader。
+    QOpenGLVertexArrayObject m_presentVao; // Core Profile全屏纹理绘制使用的空VAO。
+    unsigned int m_presentTextureId; // 当前GUI显示的后台共享颜色纹理。
+    std::uint64_t m_presentFrameId; // 当前GUI确认显示的后台帧资源标识。
+    std::uint64_t m_presentFrameVersion; // 当前GUI确认显示的后台帧版本。
+    QSize m_presentTextureSize; // 当前GUI显示共享纹理尺寸。
+
     QMatrix4x4 m_defaultModelMatrix; // 默认体素对象尚未创建时仍需保存的兼容模型矩阵。
-
-    QVector3D m_center = QVector3D(0.0f, 0.0f, 0.0f); // 当前可见对象世界空间包围中心。
-    QVector3D m_viewOffset = QVector3D(0.0f, 0.0f, 0.0f); // 用户平移产生的观察中心偏移。
-    float m_radius = 1.0f; // 当前可见对象世界空间包围球半径。
-    float m_cameraScale = 2.8f; // 相机距离相对包围球半径的比例。
-    float m_yaw = 45.0f; // 相机绕世界Z轴的方位角，单位为度。
-    float m_pitch = 35.264f; // 相机俯仰角，单位为度。
-
+    QVector3D m_center; // 当前可见对象世界空间包围中心。
+    QVector3D m_viewOffset; // 用户平移产生的观察中心偏移。
+    float m_radius; // 当前可见对象世界空间包围球半径。
+    float m_cameraScale; // 相机距离相对包围球半径的比例。
+    float m_yaw; // 相机绕世界Z轴的方位角，单位为度。
+    float m_pitch; // 相机俯仰角，单位为度。
+    QSize m_viewportSize; // 后台离屏纹理目标尺寸。
     QPoint m_lastMousePosition; // 上一次鼠标位置。
 };
 

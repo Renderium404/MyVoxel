@@ -1,6 +1,7 @@
 #include "VolumeField.h"
 
 #include <cmath>
+#include <utility>
 
 #include "MyVoxel/Core/Mask/VoxelLeafMask.h"
 #include "MyVoxel/Foundation/Diagnostic.h"
@@ -22,6 +23,8 @@ namespace MyVoxel
 VolumeField::VolumeField(VoxelLevel sampleLevel)
     : m_sampleLevel(sampleLevel)
     , m_blockLevel(BaseVoxelLevel)
+    , m_interiorBackgroundDistance(-1.0f)
+    , m_exteriorBackgroundDistance(1.0f)
     , m_completelyDirty(true)
 {
     MYVOXEL_ASSERT_MESSAGE(sampleLevel >= static_cast<VoxelLevel>(2), "VolumeField sample level must be at least level 2.");
@@ -35,6 +38,12 @@ VolumeField::VolumeField(VoxelLevel sampleLevel)
 bool VolumeField::isValid() const
 {
     if (m_sampleLevel < static_cast<VoxelLevel>(2) || static_cast<unsigned int>(m_blockLevel) + 2U != static_cast<unsigned int>(m_sampleLevel))
+    {
+        return false;
+    }
+
+    if (!isFiniteDistance(m_interiorBackgroundDistance) || m_interiorBackgroundDistance >= 0.0f ||
+        !isFiniteDistance(m_exteriorBackgroundDistance) || m_exteriorBackgroundDistance <= 0.0f)
     {
         return false;
     }
@@ -89,6 +98,32 @@ bool VolumeField::isBlockDirty(const VoxelCellAddress& blockAddress) const
 {
     MYVOXEL_ASSERT_MESSAGE(supportsBlockAddress(blockAddress), "VolumeField dirty query requires a block-level address.");
     return m_completelyDirty || m_dirtyBlocks.find(blockAddress.index) != m_dirtyBlocks.end();
+}
+
+/// 距离范围
+
+float VolumeField::interiorBackgroundDistance() const
+{
+    return m_interiorBackgroundDistance;
+}
+
+float VolumeField::exteriorBackgroundDistance() const
+{
+    return m_exteriorBackgroundDistance;
+}
+
+void VolumeField::setBackgroundDistances(float interiorDistance, float exteriorDistance)
+{
+    MYVOXEL_ASSERT_MESSAGE(isFiniteDistance(interiorDistance) && interiorDistance < 0.0f,
+                           "VolumeField interior background distance must be finite and negative.");
+    MYVOXEL_ASSERT_MESSAGE(isFiniteDistance(exteriorDistance) && exteriorDistance > 0.0f,
+                           "VolumeField exterior background distance must be finite and positive.");
+
+    if (m_interiorBackgroundDistance == interiorDistance && m_exteriorBackgroundDistance == exteriorDistance) return;
+
+    m_interiorBackgroundDistance = interiorDistance;
+    m_exteriorBackgroundDistance = exteriorDistance;
+    markAllDirty();
 }
 
 /// 距离场层级
@@ -304,6 +339,21 @@ void VolumeField::releaseStorage()
     m_dirtyBlocks.clear();
     m_blockPool.clear();
     m_completelyDirty = true;
+}
+
+void VolumeField::swap(VolumeField& other)
+{
+    MYVOXEL_ASSERT_MESSAGE(m_sampleLevel == other.m_sampleLevel && m_blockLevel == other.m_blockLevel,
+                           "VolumeField swap requires identical sample and block levels.");
+
+    if (this == &other) return;
+
+    m_blockPool.swap(other.m_blockPool);
+    m_blockIndices.swap(other.m_blockIndices);
+    m_dirtyBlocks.swap(other.m_dirtyBlocks);
+    std::swap(m_interiorBackgroundDistance, other.m_interiorBackgroundDistance);
+    std::swap(m_exteriorBackgroundDistance, other.m_exteriorBackgroundDistance);
+    std::swap(m_completelyDirty, other.m_completelyDirty);
 }
 
 /// 存储统计与遍历

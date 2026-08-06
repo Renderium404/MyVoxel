@@ -12,14 +12,11 @@ VoxelViewerWindow::VoxelViewerWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_viewer(new VoxelOpenGLWidget(this))
 {
-    setWindowTitle(QStringLiteral("MyVoxel OpenGL Viewer"));
+    setWindowTitle(QStringLiteral("MyVoxel Background OpenGL Viewer"));
     setCentralWidget(m_viewer);
     resize(1280, 800);
-
     createToolBar();
-
-    statusBar()->showMessage(
-        QStringLiteral("Left: Rotate  Right: Pan  Wheel: Zoom  Double Click/F: Fit  1: Isometric  2: Front  3: Top  4: Right  W: Wireframe"));
+    statusBar()->showMessage(QStringLiteral("Left: Rotate  Right: Pan  Wheel: Zoom  Double Click/F: Fit  1: Isometric  2: Front  3: Top  4: Right  W: Wireframe"));
 }
 
 /// 视口访问
@@ -56,9 +53,7 @@ bool VoxelViewerWindow::setMeshCache(MeshObjectId objectId, const MyVoxel::Voxel
     return m_viewer->setMeshCache(objectId, cache);
 }
 
-bool VoxelViewerWindow::updateRootMeshes(MeshObjectId objectId,
-                                         const MyVoxel::VoxelSurfaceCache& cache,
-                                         const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
+bool VoxelViewerWindow::updateRootMeshes(MeshObjectId objectId, const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
 {
     return m_viewer->updateRootMeshes(objectId, cache, changedRootIndices);
 }
@@ -95,8 +90,7 @@ void VoxelViewerWindow::setMeshCache(const MyVoxel::VoxelSurfaceCache& cache)
     m_viewer->setMeshCache(cache);
 }
 
-void VoxelViewerWindow::updateRootMeshes(const MyVoxel::VoxelSurfaceCache& cache,
-                                         const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
+void VoxelViewerWindow::updateRootMeshes(const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
 {
     m_viewer->updateRootMeshes(cache, changedRootIndices);
 }
@@ -107,18 +101,14 @@ void VoxelViewerWindow::createToolBar()
 {
     QToolBar* toolBar = addToolBar(QStringLiteral("View"));
     toolBar->setMovable(false);
-
     QAction* fitAction = toolBar->addAction(QStringLiteral("Fit"));
     QAction* isometricAction = toolBar->addAction(QStringLiteral("Isometric"));
     QAction* frontAction = toolBar->addAction(QStringLiteral("Front"));
     QAction* topAction = toolBar->addAction(QStringLiteral("Top"));
     QAction* rightAction = toolBar->addAction(QStringLiteral("Right"));
-
     toolBar->addSeparator();
-
     QAction* wireframeAction = toolBar->addAction(QStringLiteral("Wireframe"));
     wireframeAction->setCheckable(true);
-
     connect(fitAction, &QAction::triggered, m_viewer, &VoxelOpenGLWidget::fitAll);
     connect(isometricAction, &QAction::triggered, m_viewer, &VoxelOpenGLWidget::setIsometricView);
     connect(frontAction, &QAction::triggered, m_viewer, &VoxelOpenGLWidget::setFrontView);

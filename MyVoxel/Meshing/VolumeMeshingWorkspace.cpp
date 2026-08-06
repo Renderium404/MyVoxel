@@ -5,7 +5,7 @@
 #include <limits>
 
 #include "MyVoxel/Foundation/Diagnostic.h"
-#include "MyVoxel/Volume/LevelSetVolume.h"
+#include "MyVoxel/Volume/VolumeFieldView.h"
 
 namespace
 {
@@ -328,27 +328,27 @@ void VolumeMeshingWorkspace::setState(const VoxelCellIndex& index, const CellMes
 
 /// 梯度访问
 
-MyMath::Vector3 VolumeMeshingWorkspace::gradient(const LevelSetVolume& volume, const VoxelCellIndex& index)
+MyMath::Vector3 VolumeMeshingWorkspace::gradient(const VolumeFieldView& view, const VoxelCellIndex& index)
 {
-    MYVOXEL_ASSERT_MESSAGE(volume.isValid(), "VolumeMeshingWorkspace gradient requires a valid LevelSetVolume.");
+    MYVOXEL_ASSERT_MESSAGE(view.isValid() && view.isCurrent(), "VolumeMeshingWorkspace gradient requires a valid current VolumeFieldView.");
+    MYVOXEL_ASSERT_MESSAGE(m_sampleRange.level == view.sampleLevel(), "VolumeMeshingWorkspace gradient range must use the VolumeField sample level.");
     MYVOXEL_ASSERT_MESSAGE(containsSample(index), "VolumeMeshingWorkspace gradient index lies outside the sample range.");
-    MYVOXEL_ASSERT_MESSAGE(volume.contains(index), "VolumeMeshingWorkspace gradient index lies outside the source volume.");
 
     const std::size_t linearIndexValue = sampleLinearIndex(index);
 
     if (m_gradientReady[linearIndexValue] == 0)
     {
         m_gradientX[linearIndexValue] =
-            static_cast<double>(volume.value(offsetIndex(index, 1, 0, 0))) -
-            static_cast<double>(volume.value(offsetIndex(index, -1, 0, 0)));
+            static_cast<double>(view.value(offsetIndex(index, 1, 0, 0))) -
+            static_cast<double>(view.value(offsetIndex(index, -1, 0, 0)));
 
         m_gradientY[linearIndexValue] =
-            static_cast<double>(volume.value(offsetIndex(index, 0, 1, 0))) -
-            static_cast<double>(volume.value(offsetIndex(index, 0, -1, 0)));
+            static_cast<double>(view.value(offsetIndex(index, 0, 1, 0))) -
+            static_cast<double>(view.value(offsetIndex(index, 0, -1, 0)));
 
         m_gradientZ[linearIndexValue] =
-            static_cast<double>(volume.value(offsetIndex(index, 0, 0, 1))) -
-            static_cast<double>(volume.value(offsetIndex(index, 0, 0, -1)));
+            static_cast<double>(view.value(offsetIndex(index, 0, 0, 1))) -
+            static_cast<double>(view.value(offsetIndex(index, 0, 0, -1)));
 
         m_gradientReady[linearIndexValue] = static_cast<unsigned char>(1);
         ++m_computedGradientCount;

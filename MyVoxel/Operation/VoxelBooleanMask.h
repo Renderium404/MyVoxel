@@ -48,22 +48,16 @@ struct VoxelBooleanActionMasks
 
     // 返回指定处理方式对应的子体素位置。
     std::uint8_t actionMask(VoxelBooleanAction action) const;
-
     // 返回不需要继续递归的全部子体素位置。
     std::uint8_t directMask() const;
-
     // 返回能够在当前层直接完成修改的子体素位置。
     std::uint8_t directChangedMask() const;
-
     // 返回七种处理方式覆盖的全部子体素位置。
     std::uint8_t coveredMask() const;
-
     // 判断是否包含需要继续递归处理的子体素。
     bool hasRecursiveWork() const;
-
     // 判断是否包含能够在当前层直接完成的修改。
     bool hasDirectChanges() const;
-
     // 检查七种处理掩码是否互不重叠并完整覆盖八个子体素。
     bool isValid() const;
 };

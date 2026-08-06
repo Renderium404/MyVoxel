@@ -4,8 +4,12 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 
 #include "MyVoxel/Foundation/Diagnostic.h"
+#include "MyVoxel/Core/Volume/VolumeField.h"
+#include "MyVoxel/Core/VoxelShape.h"
+#include "MyVoxel/Volume/VolumeFieldView.h"
 #include "MyVoxel/Meshing/CellMeshingState.h"
 #include "MyVoxel/Meshing/FeaturePointSolver.h"
 #include "MyVoxel/Meshing/VolumeMeshingTopology.h"
@@ -57,19 +61,19 @@ MyMath::Vector3 interpolateIsoPoint(const MyMath::Vector3& point0,
 }
 
 // 使用中心差分计算指定采样点的标量梯度。
-MyMath::Vector3 sampleGradient(const MyVoxel::LevelSetVolume& volume, const MyVoxel::VoxelCellIndex& index)
+MyMath::Vector3 sampleGradient(const MyVoxel::VolumeFieldView& view, const MyVoxel::VoxelCellIndex& index)
 {
     const double gradientX =
-        static_cast<double>(volume.value(offsetIndex(index, 1, 0, 0))) -
-        static_cast<double>(volume.value(offsetIndex(index, -1, 0, 0)));
+        static_cast<double>(view.value(offsetIndex(index, 1, 0, 0))) -
+        static_cast<double>(view.value(offsetIndex(index, -1, 0, 0)));
 
     const double gradientY =
-        static_cast<double>(volume.value(offsetIndex(index, 0, 1, 0))) -
-        static_cast<double>(volume.value(offsetIndex(index, 0, -1, 0)));
+        static_cast<double>(view.value(offsetIndex(index, 0, 1, 0))) -
+        static_cast<double>(view.value(offsetIndex(index, 0, -1, 0)));
 
     const double gradientZ =
-        static_cast<double>(volume.value(offsetIndex(index, 0, 0, 1))) -
-        static_cast<double>(volume.value(offsetIndex(index, 0, 0, -1)));
+        static_cast<double>(view.value(offsetIndex(index, 0, 0, 1))) -
+        static_cast<double>(view.value(offsetIndex(index, 0, 0, -1)));
 
     return MyMath::Vector3(gradientX, gradientY, gradientZ);
 }
@@ -127,7 +131,7 @@ MyMath::Vector3 clampPointToCell(const MyMath::Vector3& point,
 }
 
 // 读取指定单元的八个OpenVDB顺序角点索引和值。
-void gatherCellValues(const MyVoxel::LevelSetVolume& volume,
+void gatherCellValues(const MyVoxel::VolumeFieldView& view,
                       const MyVoxel::VoxelCellIndex& cubeIndex,
                       std::array<MyVoxel::VoxelCellIndex, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerIndices,
                       std::array<float, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerValues)
@@ -143,13 +147,13 @@ void gatherCellValues(const MyVoxel::LevelSetVolume& volume,
                 MyVoxel::Meshing::VolumeMeshingTopology::cornerOffsetY(cornerIndex),
                 MyVoxel::Meshing::VolumeMeshingTopology::cornerOffsetZ(cornerIndex));
 
-        cornerValues[cornerIndex] = volume.value(cornerIndices[cornerIndex]);
+        cornerValues[cornerIndex] = view.value(cornerIndices[cornerIndex]);
     }
 }
 
 // 使用独立标准路径读取八个角点的世界坐标。
 void gatherCornerPositionsStandard(
-    const MyVoxel::LevelSetVolume& volume,
+    const MyVoxel::VolumeFieldView& view,
     const std::array<MyVoxel::VoxelCellIndex, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerIndices,
     std::array<MyMath::Vector3, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerPoints)
 {
@@ -157,18 +161,18 @@ void gatherCornerPositionsStandard(
          cornerIndex < MyVoxel::Meshing::VolumeMeshingTopology::CornerCount;
          ++cornerIndex)
     {
-        cornerPoints[cornerIndex] = volume.samplePosition(cornerIndices[cornerIndex]);
+        cornerPoints[cornerIndex] = view.samplePosition(cornerIndices[cornerIndex]);
     }
 }
 
 // 从当前单元第一个角点和最高层体素边长推导八个角点位置。
 void gatherCornerPositionsFast(
-    const MyVoxel::LevelSetVolume& volume,
+    const MyVoxel::VolumeFieldView& view,
     const MyVoxel::VoxelCellIndex& cubeIndex,
     std::array<MyMath::Vector3, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerPoints)
 {
-    const MyMath::Vector3 basePoint = volume.samplePosition(cubeIndex);
-    const double spacing = volume.grid().minimumCellEdgeLength();
+    const MyMath::Vector3 basePoint = view.samplePosition(cubeIndex);
+    const double spacing = view.grid().minimumCellEdgeLength();
 
     for (unsigned int cornerIndex = 0;
          cornerIndex < MyVoxel::Meshing::VolumeMeshingTopology::CornerCount;
@@ -185,7 +189,7 @@ void gatherCornerPositionsFast(
 
 // 使用独立标准路径为八个角点分别计算中心差分梯度。
 void gatherCornerGradientsStandard(
-    const MyVoxel::LevelSetVolume& volume,
+    const MyVoxel::VolumeFieldView& view,
     const std::array<MyVoxel::VoxelCellIndex, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerIndices,
     std::array<MyMath::Vector3, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerGradients)
 {
@@ -193,13 +197,13 @@ void gatherCornerGradientsStandard(
          cornerIndex < MyVoxel::Meshing::VolumeMeshingTopology::CornerCount;
          ++cornerIndex)
     {
-        cornerGradients[cornerIndex] = sampleGradient(volume, cornerIndices[cornerIndex]);
+        cornerGradients[cornerIndex] = sampleGradient(view, cornerIndices[cornerIndex]);
     }
 }
 
 // 从连续工作区取得八个角点的懒计算梯度。
 void gatherCornerGradientsFast(
-    const MyVoxel::LevelSetVolume& volume,
+    const MyVoxel::VolumeFieldView& view,
     MyVoxel::Meshing::VolumeMeshingWorkspace& workspace,
     const std::array<MyVoxel::VoxelCellIndex, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerIndices,
     std::array<MyMath::Vector3, MyVoxel::Meshing::VolumeMeshingTopology::CornerCount>& cornerGradients)
@@ -208,12 +212,12 @@ void gatherCornerGradientsFast(
          cornerIndex < MyVoxel::Meshing::VolumeMeshingTopology::CornerCount;
          ++cornerIndex)
     {
-        cornerGradients[cornerIndex] = workspace.gradient(volume, cornerIndices[cornerIndex]);
+        cornerGradients[cornerIndex] = workspace.gradient(view, cornerIndices[cornerIndex]);
     }
 }
 
 // 返回指定单元直接读取标量值生成的八位符号掩码。
-std::uint8_t directCellSignMask(const MyVoxel::LevelSetVolume& volume,
+std::uint8_t directCellSignMask(const MyVoxel::VolumeFieldView& view,
                                 const MyVoxel::VoxelCellIndex& cubeIndex,
                                 double isoValue)
 {
@@ -230,7 +234,7 @@ std::uint8_t directCellSignMask(const MyVoxel::LevelSetVolume& volume,
                 MyVoxel::Meshing::VolumeMeshingTopology::cornerOffsetY(cornerIndex),
                 MyVoxel::Meshing::VolumeMeshingTopology::cornerOffsetZ(cornerIndex));
 
-        if (isInside(volume.value(sampleIndex), isoValue))
+        if (isInside(view.value(sampleIndex), isoValue))
         {
             signMask = static_cast<std::uint8_t>(signMask | static_cast<std::uint8_t>(1U << cornerIndex));
         }
@@ -240,7 +244,7 @@ std::uint8_t directCellSignMask(const MyVoxel::LevelSetVolume& volume,
 }
 
 // 预计算每个采样点相对于当前等值面的内外符号。
-void buildSampleSigns(const MyVoxel::LevelSetVolume& volume,
+void buildSampleSigns(const MyVoxel::VolumeFieldView& view,
                       double isoValue,
                       MyVoxel::Meshing::VolumeMeshingWorkspace& workspace)
 {
@@ -263,7 +267,7 @@ void buildSampleSigns(const MyVoxel::LevelSetVolume& volume,
                     static_cast<MyVoxel::VoxelIndex>(y),
                     static_cast<MyVoxel::VoxelIndex>(z));
 
-                workspace.setSampleInside(sampleIndex, isInside(volume.value(sampleIndex), isoValue));
+                workspace.setSampleInside(sampleIndex, isInside(view.value(sampleIndex), isoValue));
             }
         }
     }
@@ -327,7 +331,7 @@ void buildCellSignMasks(MyVoxel::Meshing::VolumeMeshingWorkspace& workspace)
 
 // 使用相邻单元规则修正共享二义面的边连接方向。
 std::uint8_t correctedTopologySignMask(
-    const MyVoxel::LevelSetVolume& volume,
+    const MyVoxel::VolumeFieldView& view,
     const MyVoxel::Meshing::VolumeMeshingWorkspace& workspace,
     const MyVoxel::VoxelCellIndex& cubeIndex,
     std::uint8_t rawSignMask,
@@ -389,7 +393,7 @@ std::uint8_t correctedTopologySignMask(
     }
     else
     {
-        neighborSignMask = directCellSignMask(volume, neighborIndex, isoValue);
+        neighborSignMask = directCellSignMask(view, neighborIndex, isoValue);
     }
 
     if (MyVoxel::Meshing::VolumeMeshingTopology::ambiguousFace(neighborSignMask) == oppositeFace)
@@ -414,7 +418,7 @@ MyVoxel::Meshing::VolumeCellTopology resolveTopology(
 }
 
 // 生成全部混合符号单元及其一个或多个边组顶点。
-void buildCellStates(const MyVoxel::LevelSetVolume& volume,
+void buildCellStates(const MyVoxel::VolumeFieldView& view,
                      const MyVoxel::Meshing::VolumeMeshingOptions& options,
                      MyVoxel::Meshing::VolumeMeshingWorkspace& workspace,
                      MyVoxel::Geometry::Mesh& mesh)
@@ -469,11 +473,11 @@ void buildCellStates(const MyVoxel::LevelSetVolume& volume,
                         continue;
                     }
 
-                    gatherCellValues(volume, cubeIndex, cornerIndices, cornerValues);
+                    gatherCellValues(view, cubeIndex, cornerIndices, cornerValues);
                 }
                 else
                 {
-                    gatherCellValues(volume, cubeIndex, cornerIndices, cornerValues);
+                    gatherCellValues(view, cubeIndex, cornerIndices, cornerValues);
 
                     rawSignMask =
                         MyVoxel::Meshing::VolumeMeshingTopology::computeSignMask(cornerValues, options.isoValue);
@@ -486,28 +490,28 @@ void buildCellStates(const MyVoxel::LevelSetVolume& volume,
 
                 if (fastSampling)
                 {
-                    gatherCornerPositionsFast(volume, cubeIndex, cornerPoints);
+                    gatherCornerPositionsFast(view, cubeIndex, cornerPoints);
                 }
                 else
                 {
-                    gatherCornerPositionsStandard(volume, cornerIndices, cornerPoints);
+                    gatherCornerPositionsStandard(view, cornerIndices, cornerPoints);
                 }
 
                 if (featureSensitive)
                 {
                     if (fastSampling)
                     {
-                        gatherCornerGradientsFast(volume, workspace, cornerIndices, cornerGradients);
+                        gatherCornerGradientsFast(view, workspace, cornerIndices, cornerGradients);
                     }
                     else
                     {
-                        gatherCornerGradientsStandard(volume, cornerIndices, cornerGradients);
+                        gatherCornerGradientsStandard(view, cornerIndices, cornerGradients);
                     }
                 }
 
                 const std::uint8_t topologySignMask =
                     correctedTopologySignMask(
-                        volume,
+                        view,
                         workspace,
                         cubeIndex,
                         rawSignMask,
@@ -673,13 +677,13 @@ void appendIndexedQuad(MyVoxel::Geometry::Mesh& mesh,
 }
 
 // 连接所有X方向异号采样边周围的四个正确边组顶点。
-void appendXEdgeQuads(const MyVoxel::LevelSetVolume& volume,
+void appendXEdgeQuads(const MyVoxel::VolumeFieldView& view,
                       double isoValue,
                       const MyVoxel::Meshing::VolumeMeshingWorkspace& workspace,
                       const MyVoxel::Geometry::MeshColor& color,
                       MyVoxel::Geometry::Mesh& mesh)
 {
-    const MyVoxel::VoxelCellRange& range = volume.sampleRange();
+    const MyVoxel::VoxelCellRange& range = workspace.sampleRange();
 
     for (std::int64_t z = static_cast<std::int64_t>(range.minimum.z) + 1;
          z < static_cast<std::int64_t>(range.maximum.z);
@@ -699,8 +703,8 @@ void appendXEdgeQuads(const MyVoxel::LevelSetVolume& volume,
                     static_cast<MyVoxel::VoxelIndex>(z));
 
                 const MyVoxel::VoxelCellIndex sample1 = offsetIndex(sample0, 1, 0, 0);
-                const bool inside0 = isInside(volume.value(sample0), isoValue);
-                const bool inside1 = isInside(volume.value(sample1), isoValue);
+                const bool inside0 = isInside(view.value(sample0), isoValue);
+                const bool inside1 = isInside(view.value(sample1), isoValue);
 
                 if (inside0 == inside1)
                 {
@@ -733,13 +737,13 @@ void appendXEdgeQuads(const MyVoxel::LevelSetVolume& volume,
 }
 
 // 连接所有Y方向异号采样边周围的四个正确边组顶点。
-void appendYEdgeQuads(const MyVoxel::LevelSetVolume& volume,
+void appendYEdgeQuads(const MyVoxel::VolumeFieldView& view,
                       double isoValue,
                       const MyVoxel::Meshing::VolumeMeshingWorkspace& workspace,
                       const MyVoxel::Geometry::MeshColor& color,
                       MyVoxel::Geometry::Mesh& mesh)
 {
-    const MyVoxel::VoxelCellRange& range = volume.sampleRange();
+    const MyVoxel::VoxelCellRange& range = workspace.sampleRange();
 
     for (std::int64_t z = static_cast<std::int64_t>(range.minimum.z) + 1;
          z < static_cast<std::int64_t>(range.maximum.z);
@@ -759,8 +763,8 @@ void appendYEdgeQuads(const MyVoxel::LevelSetVolume& volume,
                     static_cast<MyVoxel::VoxelIndex>(z));
 
                 const MyVoxel::VoxelCellIndex sample1 = offsetIndex(sample0, 0, 1, 0);
-                const bool inside0 = isInside(volume.value(sample0), isoValue);
-                const bool inside1 = isInside(volume.value(sample1), isoValue);
+                const bool inside0 = isInside(view.value(sample0), isoValue);
+                const bool inside1 = isInside(view.value(sample1), isoValue);
 
                 if (inside0 == inside1)
                 {
@@ -793,13 +797,13 @@ void appendYEdgeQuads(const MyVoxel::LevelSetVolume& volume,
 }
 
 // 连接所有Z方向异号采样边周围的四个正确边组顶点。
-void appendZEdgeQuads(const MyVoxel::LevelSetVolume& volume,
+void appendZEdgeQuads(const MyVoxel::VolumeFieldView& view,
                       double isoValue,
                       const MyVoxel::Meshing::VolumeMeshingWorkspace& workspace,
                       const MyVoxel::Geometry::MeshColor& color,
                       MyVoxel::Geometry::Mesh& mesh)
 {
-    const MyVoxel::VoxelCellRange& range = volume.sampleRange();
+    const MyVoxel::VoxelCellRange& range = workspace.sampleRange();
 
     for (std::int64_t z = static_cast<std::int64_t>(range.minimum.z);
          z < static_cast<std::int64_t>(range.maximum.z);
@@ -819,8 +823,8 @@ void appendZEdgeQuads(const MyVoxel::LevelSetVolume& volume,
                     static_cast<MyVoxel::VoxelIndex>(z));
 
                 const MyVoxel::VoxelCellIndex sample1 = offsetIndex(sample0, 0, 0, 1);
-                const bool inside0 = isInside(volume.value(sample0), isoValue);
-                const bool inside1 = isInside(volume.value(sample1), isoValue);
+                const bool inside0 = isInside(view.value(sample0), isoValue);
+                const bool inside1 = isInside(view.value(sample1), isoValue);
 
                 if (inside0 == inside1)
                 {
@@ -852,17 +856,51 @@ void appendZEdgeQuads(const MyVoxel::LevelSetVolume& volume,
     }
 }
 
-// 判断两个采样范围是否完全一致。
-bool sameRange(const MyVoxel::VoxelCellRange& first, const MyVoxel::VoxelCellRange& second)
+// 返回添加整数偏移后的体素索引分量，并检查VoxelIndex范围。
+MyVoxel::VoxelIndex offsetComponent(MyVoxel::VoxelIndex value, int offset)
 {
-    return
-        first.level == second.level &&
-        first.minimum.x == second.minimum.x &&
-        first.minimum.y == second.minimum.y &&
-        first.minimum.z == second.minimum.z &&
-        first.maximum.x == second.maximum.x &&
-        first.maximum.y == second.maximum.y &&
-        first.maximum.z == second.maximum.z;
+    const std::int64_t result = static_cast<std::int64_t>(value) + static_cast<std::int64_t>(offset);
+    const std::int64_t minimum = static_cast<std::int64_t>((std::numeric_limits<MyVoxel::VoxelIndex>::min)());
+    const std::int64_t maximum = static_cast<std::int64_t>((std::numeric_limits<MyVoxel::VoxelIndex>::max)());
+
+    MYVOXEL_ASSERT_MESSAGE(result >= minimum && result <= maximum, "VolumeMesher sample range exceeds VoxelIndex limits.");
+    return static_cast<MyVoxel::VoxelIndex>(result);
+}
+
+// 在六个方向按指定最高层样本数量扩展采样范围。
+MyVoxel::VoxelCellRange expandedRange(const MyVoxel::VoxelCellRange& range, int padding)
+{
+    MYVOXEL_ASSERT_MESSAGE(range.isValid(), "VolumeMesher requires a valid range before expansion.");
+    MYVOXEL_ASSERT_MESSAGE(padding >= 0, "VolumeMesher range padding must be non-negative.");
+
+    return MyVoxel::VoxelCellRange(
+        MyVoxel::VoxelCellIndex(offsetComponent(range.minimum.x, -padding),
+                                offsetComponent(range.minimum.y, -padding),
+                                offsetComponent(range.minimum.z, -padding)),
+        MyVoxel::VoxelCellIndex(offsetComponent(range.maximum.x, padding),
+                                offsetComponent(range.maximum.y, padding),
+                                offsetComponent(range.maximum.z, padding)),
+        range.level);
+}
+
+// 检查当前距离场视图和等值面参数是否允许执行网格化。
+void validateView(const MyVoxel::VolumeFieldView& view, const MyVoxel::Meshing::VolumeMeshingOptions& options)
+{
+    MYVOXEL_ASSERT_MESSAGE(view.isValid(), "VolumeMesher requires a valid VolumeFieldView.");
+    MYVOXEL_ASSERT_MESSAGE(view.isCurrent(), "VolumeMesher requires a fully current VolumeField.");
+    MYVOXEL_ASSERT_MESSAGE(std::isfinite(options.isoValue), "VolumeMesher isoValue must be finite.");
+    MYVOXEL_ASSERT_MESSAGE(options.isoValue > static_cast<double>(view.field().interiorBackgroundDistance()) &&
+                           options.isoValue < static_cast<double>(view.field().exteriorBackgroundDistance()),
+                           "VolumeMesher isoValue must lie strictly between the interior and exterior background distances.");
+}
+
+// 检查有限采样范围是否与当前距离场最高采样层级一致。
+void validateSampleRange(const MyVoxel::VolumeFieldView& view, const MyVoxel::VoxelCellRange& sampleRange)
+{
+    MYVOXEL_ASSERT_MESSAGE(sampleRange.isValid(), "VolumeMesher requires a valid finite sample range.");
+    MYVOXEL_ASSERT_MESSAGE(sampleRange.level == view.sampleLevel(), "VolumeMesher sample range must use the VolumeField sample level.");
+    MYVOXEL_ASSERT_MESSAGE(sampleRange.countX() >= 2 && sampleRange.countY() >= 2 && sampleRange.countZ() >= 2,
+                           "VolumeMesher requires at least two samples in every direction.");
 }
 
 }
@@ -872,43 +910,98 @@ namespace MyVoxel
 namespace Meshing
 {
 
-Geometry::Mesh VolumeMesher::build(const LevelSetVolume& volume, const VolumeMeshingOptions& options)
+VoxelCellRange VolumeMesher::defaultSampleRange(const VolumeFieldView& view)
 {
-    MYVOXEL_ASSERT_MESSAGE(volume.isValid(), "VolumeMesher requires a valid LevelSetVolume.");
+    validateView(view, VolumeMeshingOptions());
 
-    VolumeMeshingWorkspace workspace(volume.sampleRange());
-    return buildWithWorkspace(volume, workspace, options);
+    const VolumeField& field = view.field();
+
+    if (field.isEmpty())
+    {
+        return VoxelCellRange();
+    }
+
+    bool initialized = false;
+    VoxelCellIndex minimum;
+    VoxelCellIndex maximum;
+    const VolumeField::BlockIndexMap& blocks = field.blockIndices();
+
+    for (VolumeField::BlockIndexMap::const_iterator iterator = blocks.begin(); iterator != blocks.end(); ++iterator)
+    {
+        const VoxelCellAddress blockAddress(iterator->first, field.blockLevel());
+        const VoxelCellIndex blockMinimum = field.sampleAddress(blockAddress, 0, 0, 0).index;
+        const VoxelCellIndex blockMaximum = field.sampleAddress(blockAddress, 3, 3, 3).index;
+
+        if (!initialized)
+        {
+            minimum = blockMinimum;
+            maximum = blockMaximum;
+            initialized = true;
+            continue;
+        }
+
+        minimum.x = (std::min)(minimum.x, blockMinimum.x);
+        minimum.y = (std::min)(minimum.y, blockMinimum.y);
+        minimum.z = (std::min)(minimum.z, blockMinimum.z);
+        maximum.x = (std::max)(maximum.x, blockMaximum.x);
+        maximum.y = (std::max)(maximum.y, blockMaximum.y);
+        maximum.z = (std::max)(maximum.z, blockMaximum.z);
+    }
+
+    MYVOXEL_ASSERT_MESSAGE(initialized, "Non-empty VolumeField must contain at least one block index.");
+    return expandedRange(VoxelCellRange(minimum, maximum, view.sampleLevel()), 1);
 }
 
-Geometry::Mesh VolumeMesher::buildWithWorkspace(const LevelSetVolume& volume,
+Geometry::Mesh VolumeMesher::build(const VolumeFieldView& view, const VolumeMeshingOptions& options)
+{
+    validateView(view, options);
+
+    const VoxelCellRange sampleRange = defaultSampleRange(view);
+
+    if (!sampleRange.isValid())
+    {
+        MYVOXEL_ASSERT_MESSAGE(view.shape().isEmpty(),
+                               "Non-empty VoxelShape requires stored distance blocks or an explicit meshing range.");
+        return Geometry::Mesh();
+    }
+
+    return build(view, sampleRange, options);
+}
+
+Geometry::Mesh VolumeMesher::build(const VolumeFieldView& view,
+                                  const VoxelCellRange& sampleRange,
+                                  const VolumeMeshingOptions& options)
+{
+    validateView(view, options);
+    validateSampleRange(view, sampleRange);
+    VolumeMeshingWorkspace workspace(sampleRange);
+    return buildWithWorkspace(view, workspace, options);
+}
+
+Geometry::Mesh VolumeMesher::buildWithWorkspace(const VolumeFieldView& view,
                                                 VolumeMeshingWorkspace& workspace,
                                                 const VolumeMeshingOptions& options)
 {
-    MYVOXEL_ASSERT_MESSAGE(volume.isValid(), "VolumeMesher requires a valid LevelSetVolume.");
-    MYVOXEL_ASSERT_MESSAGE(std::isfinite(options.isoValue), "VolumeMesher isoValue must be finite.");
+    validateView(view, options);
     MYVOXEL_ASSERT_MESSAGE(workspace.isValid(), "VolumeMesher requires a valid meshing workspace.");
-    MYVOXEL_ASSERT_MESSAGE(sameRange(volume.sampleRange(), workspace.sampleRange()),
-                           "VolumeMesher workspace sample range must match the source volume.");
+    validateSampleRange(view, workspace.sampleRange());
 
     workspace.clear();
 
     if (options.signMode == VolumeSignMode::FastPrecomputed)
     {
-        buildSampleSigns(volume, options.isoValue, workspace);
+        buildSampleSigns(view, options.isoValue, workspace);
         buildCellSignMasks(workspace);
     }
 
     Geometry::Mesh mesh;
-
-    buildCellStates(volume, options, workspace, mesh);
-
-    appendXEdgeQuads(volume, options.isoValue, workspace, options.color, mesh);
-    appendYEdgeQuads(volume, options.isoValue, workspace, options.color, mesh);
-    appendZEdgeQuads(volume, options.isoValue, workspace, options.color, mesh);
+    buildCellStates(view, options, workspace, mesh);
+    appendXEdgeQuads(view, options.isoValue, workspace, options.color, mesh);
+    appendYEdgeQuads(view, options.isoValue, workspace, options.color, mesh);
+    appendZEdgeQuads(view, options.isoValue, workspace, options.color, mesh);
 
     MYVOXEL_ASSERT_MESSAGE(workspace.isValid(), "VolumeMesher generated an invalid meshing workspace.");
     MYVOXEL_ASSERT_MESSAGE(mesh.isValid(), "VolumeMesher generated an invalid Geometry::Mesh.");
-
     return mesh;
 }
 
