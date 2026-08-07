@@ -6,7 +6,8 @@
 
 #include "MyVoxel/Core/VoxelAddress.h"
 #include "MyVoxel/Core/VoxelShape.h"
-#include "MyVoxel/Geometry/Mesh/Mesh.h"
+#include "MyVoxel/Display/Base/Display_Color.h"
+#include "MyVoxel/Mesh/Mesh.h"
 
 #include "VoxelFaceColorMap.h"
 #include "VoxelFaceSet.h"
@@ -26,11 +27,11 @@ public:
     struct Cell
     {
         Cell();
-        Cell(std::size_t uValue, std::size_t vValue, const Geometry::MeshColor& colorValue);
+        Cell(std::size_t uValue, std::size_t vValue, const Display_Color& colorValue);
 
         std::size_t u; // 当前方向平面内第一坐标。
         std::size_t v; // 当前方向平面内第二坐标。
-        Geometry::MeshColor color; // 当前单位面的单独颜色。
+        Display_Color color; // 当前单位面的单独颜色。
     };
 
     using CellContainer = std::vector<Cell>;
@@ -94,111 +95,111 @@ public:
     /// 自动提取完整表面
 
     // 使用统一默认颜色提取并构建当前体素形体的完整局部空间表面网格。
-    static Geometry::Mesh build(const VoxelShape& shape, const Geometry::MeshColor& defaultColor);
+    static Mesh build(const VoxelShape& shape, const Display_Color& defaultColor);
 
     // 使用稀疏单位面颜色和默认颜色提取并构建当前体素形体的完整局部空间表面网格。
-    static Geometry::Mesh build(const VoxelShape& shape,
+    static Mesh build(const VoxelShape& shape,
                                 const VoxelFaceColorMap& colors,
-                                const Geometry::MeshColor& defaultColor);
+                                const Display_Color& defaultColor);
 
     /// 已有面集合完整构建
 
     // 将全部体素面按所属第0层根分别构建并合并为一个完整网格。
-    static Geometry::Mesh build(const VoxelShape& shape,
+    static Mesh build(const VoxelShape& shape,
                                 const VoxelFaceSet& faces,
                                 const VoxelFaceColorMap& colors,
-                                const Geometry::MeshColor& defaultColor);
+                                const Display_Color& defaultColor);
 
     /// 自动提取根级表面
 
     // 使用统一默认颜色提取并构建指定第0层根拥有的局部空间表面网格。
-    static Geometry::Mesh buildRoot(const VoxelShape& shape,
+    static Mesh buildRoot(const VoxelShape& shape,
                                     const VoxelCellIndex& rootIndex,
-                                    const Geometry::MeshColor& defaultColor);
+                                    const Display_Color& defaultColor);
 
     // 使用稀疏单位面颜色和默认颜色提取并构建指定第0层根拥有的局部空间表面网格。
-    static Geometry::Mesh buildRoot(const VoxelShape& shape,
+    static Mesh buildRoot(const VoxelShape& shape,
                                     const VoxelCellIndex& rootIndex,
                                     const VoxelFaceColorMap& colors,
-                                    const Geometry::MeshColor& defaultColor);
+                                    const Display_Color& defaultColor);
 
     /// 已有面集合根级构建
 
     // 构建指定第0层根拥有的体素面网格，faces中的全部面必须属于该根。
-    static Geometry::Mesh buildRoot(const VoxelShape& shape,
+    static Mesh buildRoot(const VoxelShape& shape,
                                     const VoxelCellIndex& rootIndex,
                                     const VoxelFaceSet& faces,
                                     const VoxelFaceColorMap& colors,
-                                    const Geometry::MeshColor& defaultColor);
+                                    const Display_Color& defaultColor);
 
     // 构建指定第0层根拥有的体素面网格，并返回阶段统计。
-    static Geometry::Mesh buildRoot(const VoxelShape& shape,
+    static Mesh buildRoot(const VoxelShape& shape,
                                     const VoxelCellIndex& rootIndex,
                                     const VoxelFaceSet& faces,
                                     const VoxelFaceColorMap& colors,
-                                    const Geometry::MeshColor& defaultColor,
+                                    const Display_Color& defaultColor,
                                     VoxelSurfaceMeshingStatistics* statistics);
 
     /// 已有Root面掩码构建
 
     // 直接使用Root方向面掩码构建局部网格，不再执行面地址到方向平面的重新分桶。
-    static Geometry::Mesh buildRoot(const VoxelShape& shape,
+    static Mesh buildRoot(const VoxelShape& shape,
                                     const VoxelCellIndex& rootIndex,
                                     const VoxelRootFaceMasks& faceMasks,
                                     const VoxelFaceColorMap& colors,
-                                    const Geometry::MeshColor& defaultColor);
+                                    const Display_Color& defaultColor);
 
     // 直接使用Root方向面掩码构建局部网格，并返回阶段统计。
-    static Geometry::Mesh buildRoot(const VoxelShape& shape,
+    static Mesh buildRoot(const VoxelShape& shape,
                                     const VoxelCellIndex& rootIndex,
                                     const VoxelRootFaceMasks& faceMasks,
                                     const VoxelFaceColorMap& colors,
-                                    const Geometry::MeshColor& defaultColor,
+                                    const Display_Color& defaultColor,
                                     VoxelSurfaceMeshingStatistics* statistics);
 
     /// 单方向Root面掩码构建
 
     // 只构建指定Root方向的局部网格，用于Root与方向扁平并行调度。
-    static Geometry::Mesh buildRootDirection(const VoxelShape& shape,
+    static Mesh buildRootDirection(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              VoxelFaceDirection direction,
                                              const VoxelRootFaceMasks& faceMasks,
                                              const VoxelFaceColorMap& colors,
-                                             const Geometry::MeshColor& defaultColor);
+                                             const Display_Color& defaultColor);
 
     // 只构建指定Root方向的局部网格，并返回该方向的阶段统计。
-    static Geometry::Mesh buildRootDirection(const VoxelShape& shape,
+    static Mesh buildRootDirection(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              VoxelFaceDirection direction,
                                              const VoxelRootFaceMasks& faceMasks,
                                              const VoxelFaceColorMap& colors,
-                                             const Geometry::MeshColor& defaultColor,
+                                             const Display_Color& defaultColor,
                                              VoxelSurfaceMeshingStatistics* statistics);
 
     // 使用已经按Root准备的颜色数据构建指定方向，避免方向任务重复查询面颜色。
-    static Geometry::Mesh buildRootDirection(const VoxelShape& shape,
+    static Mesh buildRootDirection(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              VoxelFaceDirection direction,
                                              const VoxelRootFaceMasks& faceMasks,
                                              const VoxelRootSurfaceColorData& colorData,
-                                             const Geometry::MeshColor& defaultColor);
+                                             const Display_Color& defaultColor);
 
     // 使用已经按Root准备的颜色数据构建指定方向，并返回该方向的阶段统计。
-    static Geometry::Mesh buildRootDirection(const VoxelShape& shape,
+    static Mesh buildRootDirection(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              VoxelFaceDirection direction,
                                              const VoxelRootFaceMasks& faceMasks,
                                              const VoxelRootSurfaceColorData& colorData,
-                                             const Geometry::MeshColor& defaultColor,
+                                             const Display_Color& defaultColor,
                                              VoxelSurfaceMeshingStatistics* statistics);
 
     // 使用历史四边形数量预留方向临时Mesh容量，并返回该方向的阶段统计。
-    static Geometry::Mesh buildRootDirection(const VoxelShape& shape,
+    static Mesh buildRootDirection(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              VoxelFaceDirection direction,
                                              const VoxelRootFaceMasks& faceMasks,
                                              const VoxelRootSurfaceColorData& colorData,
-                                             const Geometry::MeshColor& defaultColor,
+                                             const Display_Color& defaultColor,
                                              std::size_t reserveQuadCount,
                                              VoxelSurfaceMeshingStatistics* statistics);
 

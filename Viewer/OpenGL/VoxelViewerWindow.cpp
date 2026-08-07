@@ -5,6 +5,8 @@
 #include <QString>
 #include <QToolBar>
 
+#include "VoxelOpenGLWidget.h"
+
 namespace MyVoxelViewer
 {
 
@@ -12,90 +14,46 @@ VoxelViewerWindow::VoxelViewerWindow(QWidget* parent)
     : QMainWindow(parent)
     , m_viewer(new VoxelOpenGLWidget(this))
 {
-    setWindowTitle(QStringLiteral("MyVoxel Background OpenGL Viewer"));
+    setWindowTitle(QStringLiteral("MyVoxel Display OpenGL Viewer"));
     setCentralWidget(m_viewer);
     resize(1280, 800);
     createToolBar();
-    statusBar()->showMessage(QStringLiteral("Left: Rotate  Right: Pan  Wheel: Zoom  Double Click/F: Fit  1: Isometric  2: Front  3: Top  4: Right  W: Wireframe"));
+    statusBar()->showMessage(QStringLiteral(
+        "Left: Rotate  Right: Pan  Wheel: Zoom  Double Click/F: Fit  1: Isometric  2: Front  3: Top  4: Right  W: Mesh Wireframe"));
 }
 
-/// 视口访问
+VoxelOpenGLWidget* VoxelViewerWindow::viewer() { return m_viewer; }
+const VoxelOpenGLWidget* VoxelViewerWindow::viewer() const { return m_viewer; }
 
-VoxelOpenGLWidget* VoxelViewerWindow::viewer()
+bool VoxelViewerWindow::submitDisplaySnapshot(const MyVoxel::Display_MeshObjectSnapshot& snapshot)
 {
-    return m_viewer;
+    return m_viewer->submitDisplaySnapshot(snapshot);
 }
 
-const VoxelOpenGLWidget* VoxelViewerWindow::viewer() const
+bool VoxelViewerWindow::submitDisplaySnapshot(const MyVoxel::Display_LineObjectSnapshot& snapshot)
 {
-    return m_viewer;
+    return m_viewer->submitDisplaySnapshot(snapshot);
 }
 
-/// 通用网格对象
-
-MeshObjectId VoxelViewerWindow::addMesh(const MyVoxel::Geometry::Mesh& mesh, const QMatrix4x4& modelMatrix)
+bool VoxelViewerWindow::submitDisplayUpdate(const MyVoxel::Display_MeshUpdate& update)
 {
-    return m_viewer->addMesh(mesh, modelMatrix);
+    return m_viewer->submitDisplayUpdate(update);
 }
 
-bool VoxelViewerWindow::setMesh(MeshObjectId objectId, const MyVoxel::Geometry::Mesh& mesh)
+bool VoxelViewerWindow::submitDisplayStateUpdate(const MyVoxel::Display_MeshStateUpdate& update)
 {
-    return m_viewer->setMesh(objectId, mesh);
+    return m_viewer->submitDisplayStateUpdate(update);
 }
 
-MeshObjectId VoxelViewerWindow::addMeshCache(const MyVoxel::VoxelSurfaceCache& cache, const QMatrix4x4& modelMatrix)
+bool VoxelViewerWindow::removeDisplayObject(std::uint64_t objectId)
 {
-    return m_viewer->addMeshCache(cache, modelMatrix);
+    return m_viewer->removeDisplayObject(objectId);
 }
 
-bool VoxelViewerWindow::setMeshCache(MeshObjectId objectId, const MyVoxel::VoxelSurfaceCache& cache)
+void VoxelViewerWindow::clearDisplayObjects()
 {
-    return m_viewer->setMeshCache(objectId, cache);
+    m_viewer->clearDisplayObjects();
 }
-
-bool VoxelViewerWindow::updateRootMeshes(MeshObjectId objectId, const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
-{
-    return m_viewer->updateRootMeshes(objectId, cache, changedRootIndices);
-}
-
-bool VoxelViewerWindow::setMeshObjectMatrix(MeshObjectId objectId, const QMatrix4x4& matrix)
-{
-    return m_viewer->setMeshObjectMatrix(objectId, matrix);
-}
-
-bool VoxelViewerWindow::setMeshObjectVisible(MeshObjectId objectId, bool visible)
-{
-    return m_viewer->setMeshObjectVisible(objectId, visible);
-}
-
-bool VoxelViewerWindow::removeMeshObject(MeshObjectId objectId)
-{
-    return m_viewer->removeMeshObject(objectId);
-}
-
-void VoxelViewerWindow::clearMeshes()
-{
-    m_viewer->clearMeshes();
-}
-
-std::size_t VoxelViewerWindow::meshObjectCount() const
-{
-    return m_viewer->meshObjectCount();
-}
-
-/// 单体素对象兼容入口
-
-void VoxelViewerWindow::setMeshCache(const MyVoxel::VoxelSurfaceCache& cache)
-{
-    m_viewer->setMeshCache(cache);
-}
-
-void VoxelViewerWindow::updateRootMeshes(const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
-{
-    m_viewer->updateRootMeshes(cache, changedRootIndices);
-}
-
-/// 界面构建
 
 void VoxelViewerWindow::createToolBar()
 {
@@ -109,6 +67,7 @@ void VoxelViewerWindow::createToolBar()
     toolBar->addSeparator();
     QAction* wireframeAction = toolBar->addAction(QStringLiteral("Wireframe"));
     wireframeAction->setCheckable(true);
+
     connect(fitAction, &QAction::triggered, m_viewer, &VoxelOpenGLWidget::fitAll);
     connect(isometricAction, &QAction::triggered, m_viewer, &VoxelOpenGLWidget::setIsometricView);
     connect(frontAction, &QAction::triggered, m_viewer, &VoxelOpenGLWidget::setFrontView);

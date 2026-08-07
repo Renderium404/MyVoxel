@@ -46,9 +46,10 @@ namespace MyVoxel
 
 
 Geometry_Sphere::Geometry_Sphere(double radius)
-    : m_radius(radius)
+    : Geometry_Shape(Bounds3(MyMath::Vector3(-radius, -radius, -radius),
+                             MyMath::Vector3(radius, radius, radius)))
+    , m_radius(radius)
     , m_radiusSquared(radius * radius)
-    , m_bounds(MyMath::Vector3(-radius, -radius, -radius), MyMath::Vector3(radius, radius, radius))
 {
     MYVOXEL_ASSERT_MESSAGE(isFinitePositive(radius), "Geometry_Sphere radius must be finite and greater than zero.");
 }
@@ -67,10 +68,6 @@ ShapeKind Geometry_Sphere::kind() const
     return ShapeKind::Sphere;
 }
 
-Bounds3 Geometry_Sphere::localBounds() const
-{
-    return m_bounds;
-}
 
 /// 标准空间查询
 

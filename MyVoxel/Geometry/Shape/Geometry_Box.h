@@ -1,5 +1,5 @@
-#ifndef MYVOXEL_GEOMETRY_Geometry_Box_H
-#define MYVOXEL_GEOMETRY_Geometry_Box_H
+#ifndef MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_BOX_H
+#define MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_BOX_H
 
 #include "Geometry_Shape.h"
 
@@ -30,9 +30,6 @@ public:
     // 返回标准长方体类型。
     ShapeKind kind() const override;
 
-    // 返回长方体局部轴对齐包围盒。
-    Bounds3 localBounds() const override;
-
     /// 空间查询
 
     // 判断指定局部坐标点是否位于长方体内部或边界上。
@@ -49,10 +46,9 @@ private:
     double m_sizeX; // 长方体X方向完整尺寸。
     double m_sizeY; // 长方体Y方向完整尺寸。
     double m_sizeZ; // 长方体Z方向完整尺寸。
-    Bounds3 m_bounds; // 长方体局部轴对齐包围盒。
 };
 
 
 }
 
-#endif // MYVOXEL_GEOMETRY_Geometry_Box_H
+#endif // MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_BOX_H

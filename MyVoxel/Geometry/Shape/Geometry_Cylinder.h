@@ -1,5 +1,5 @@
-#ifndef MYVOXEL_GEOMETRY_Geometry_Cylinder_H
-#define MYVOXEL_GEOMETRY_Geometry_Cylinder_H
+#ifndef MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_CYLINDER_H
+#define MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_CYLINDER_H
 
 #include "Geometry_Shape.h"
 
@@ -27,9 +27,6 @@ public:
     // 返回标准圆柱体类型。
     ShapeKind kind() const override;
 
-    // 返回圆柱体局部轴对齐包围盒。
-    Bounds3 localBounds() const override;
-
     /// 标准空间查询
 
     // 判断指定局部坐标点是否位于圆柱体内部或边界上。
@@ -48,10 +45,9 @@ private:
     double m_radiusSquared; // 圆柱体半径平方。
     double m_height; // 圆柱体完整高度。
     double m_halfHeight; // 圆柱体半高度。
-    Bounds3 m_bounds; // 圆柱体局部轴对齐包围盒。
 };
 
 
 }
 
-#endif // MYVOXEL_GEOMETRY_Geometry_Cylinder_H
+#endif // MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_CYLINDER_H

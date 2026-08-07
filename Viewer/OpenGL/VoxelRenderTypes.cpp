@@ -1,68 +1,23 @@
 #include "VoxelRenderTypes.h"
 
 #include <algorithm>
-#include <cassert>
 
 namespace MyVoxelViewer
 {
 
-MeshPartIndex::MeshPartIndex()
-    : kind(Single)
-    , direction(MyVoxel::VoxelFaceDirection::NegativeX)
+QMatrix4x4 toQMatrix4x4(const MyMath::Matrix4& source)
 {
-}
+    QMatrix4x4 result;
 
-MeshPartIndex::MeshPartIndex(const MyVoxel::VoxelCellIndex& rootIndexValue, MyVoxel::VoxelFaceDirection directionValue)
-    : kind(RootDirection)
-    , rootIndex(rootIndexValue)
-    , direction(directionValue)
-{
-    assert(MyVoxel::isValidVoxelFaceDirection(directionValue));
-}
-
-
-
-
-bool MeshPartIndex::operator<(const MeshPartIndex& other) const
-{
-    if (kind != other.kind)
+    for (int row = 0; row < 4; ++row)
     {
-        return kind < other.kind;
+        for (int column = 0; column < 4; ++column)
+        {
+            result(row, column) = static_cast<float>(source.value(row, column));
+        }
     }
 
-    if (kind == Single)
-    {
-        return false;
-    }
-
-    if (rootIndex != other.rootIndex)
-    {
-        return rootIndex < other.rootIndex;
-    }
-
-    return static_cast<unsigned int>(direction) < static_cast<unsigned int>(other.direction);
-}
-
-MeshPartSnapshot::MeshPartSnapshot()
-    : version(0)
-    , removed(true)
-{
-}
-
-MeshPartSnapshot::MeshPartSnapshot(const MeshPartIndex& partIndexValue, std::uint64_t versionValue, const MyVoxel::Geometry::Mesh& meshValue)
-    : partIndex(partIndexValue)
-    , version(versionValue)
-    , removed(meshValue.isEmpty())
-    , mesh(meshValue)
-{
-}
-
-MeshObjectSnapshot::MeshObjectSnapshot()
-    : objectId(0)
-    , kind(MeshObjectKind::Mesh)
-    , visible(true)
-{
-    modelMatrix.setToIdentity();
+    return result;
 }
 
 RenderCameraState::RenderCameraState()
@@ -99,6 +54,8 @@ void MeshUpdateStatistics::clear()
     stagedCpuPartCount = 0;
     drawCallCount = 0;
     triangleCount = 0;
+    lineDrawCallCount = 0;
+    lineSegmentCount = 0;
     frameVersion = 0;
 }
 
@@ -120,6 +77,8 @@ void MeshUpdateStatistics::add(const MeshUpdateStatistics& other)
     stagedCpuPartCount += other.stagedCpuPartCount;
     drawCallCount += other.drawCallCount;
     triangleCount += other.triangleCount;
+    lineDrawCallCount += other.lineDrawCallCount;
+    lineSegmentCount += other.lineSegmentCount;
     frameVersion = (std::max)(frameVersion, other.frameVersion);
 }
 

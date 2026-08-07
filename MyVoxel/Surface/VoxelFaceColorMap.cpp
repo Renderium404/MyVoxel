@@ -40,7 +40,7 @@ MyVoxel::VoxelFaceColorMap::Container::const_iterator lowerBound(
 namespace MyVoxel
 {
 
-VoxelFaceColorMap::Entry::Entry(const VoxelFaceAddress& face, const Geometry::MeshColor& color)
+VoxelFaceColorMap::Entry::Entry(const VoxelFaceAddress& face, const Display_Color& color)
     : first(face)
     , second(color)
 {
@@ -123,7 +123,7 @@ bool VoxelFaceColorMap::contains(const VoxelFaceAddress& face) const
     return find(face) != nullptr;
 }
 
-const Geometry::MeshColor* VoxelFaceColorMap::find(const VoxelFaceAddress& face) const
+const Display_Color* VoxelFaceColorMap::find(const VoxelFaceAddress& face) const
 {
     const Container::const_iterator iterator = lowerBound(m_colors, face);
 
@@ -135,11 +135,11 @@ const Geometry::MeshColor* VoxelFaceColorMap::find(const VoxelFaceAddress& face)
     return &iterator->second;
 }
 
-const Geometry::MeshColor& VoxelFaceColorMap::colorOrDefault(
+const Display_Color& VoxelFaceColorMap::colorOrDefault(
     const VoxelFaceAddress& face,
-    const Geometry::MeshColor& defaultColor) const
+    const Display_Color& defaultColor) const
 {
-    const Geometry::MeshColor* color = find(face);
+    const Display_Color* color = find(face);
     return color ? *color : defaultColor;
 }
 
@@ -155,7 +155,7 @@ VoxelFaceColorMap::ConstIterator VoxelFaceColorMap::end() const
 
 /// 单面修改
 
-bool VoxelFaceColorMap::set(const VoxelFaceAddress& face, const Geometry::MeshColor& color)
+bool VoxelFaceColorMap::set(const VoxelFaceAddress& face, const Display_Color& color)
 {
     Container::iterator iterator = lowerBound(m_colors, face);
 
@@ -189,7 +189,7 @@ bool VoxelFaceColorMap::erase(const VoxelFaceAddress& face)
 
 /// 批量修改
 
-std::size_t VoxelFaceColorMap::set(const VoxelFaceSet& faces, const Geometry::MeshColor& color)
+std::size_t VoxelFaceColorMap::set(const VoxelFaceSet& faces, const Display_Color& color)
 {
     if (faces.isEmpty())
     {

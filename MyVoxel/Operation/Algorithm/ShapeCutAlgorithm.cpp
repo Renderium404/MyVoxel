@@ -19,8 +19,8 @@
 #include "MyVoxel/Foundation/ParallelExecutor.h"
 #include "MyVoxel/Foundation/ParallelOptions.h"
 #include "MyVoxel/Foundation/Stopwatch.h"
-#include "MyVoxel/Geometry/ShapeQuery.h"
-#include "MyVoxel/Geometry/ShapeRelation.h"
+#include "MyVoxel/Tool/Query/ShapeQuery.h"
+#include "MyVoxel/Geometry/Shape/ShapeRelation.h"
 
 namespace
 {
@@ -34,7 +34,7 @@ const unsigned int MinimumOctantBatchActiveChildCount = 4; // 至少四个活动
 const std::size_t MinimumParallelIntersectingRootCount = 4; // 四个及以上相交根进入并行切削。
 
 static_assert(
-    static_cast<unsigned int>(MyVoxel::Geometry::ShapeQuery::OctantCount) ==
+    static_cast<unsigned int>(MyVoxel::ShapeQuery::OctantCount) ==
     static_cast<unsigned int>(MyVoxel::VoxelCornerCount),
     "ShapeQuery octant order must match VoxelCorner order.");
 
@@ -83,7 +83,7 @@ public:
     void derivedChildBounds() {}
     void visitCell() {}
     void skipEmpty() {}
-    void classify(MyVoxel::Geometry::ShapeRelation) {}
+    void classify(MyVoxel::ShapeRelation) {}
     void centerSample() {}
     void centerRemoved() {}
     void removedBranch() {}
@@ -158,21 +158,21 @@ public:
         ++m_statistics.emptySkippedCellCount;
     }
 
-    void classify(MyVoxel::Geometry::ShapeRelation relation)
+    void classify(MyVoxel::ShapeRelation relation)
     {
         ++m_statistics.classifiedCellCount;
 
         switch (relation)
         {
-        case MyVoxel::Geometry::ShapeRelation::Outside:
+        case MyVoxel::ShapeRelation::Outside:
             ++m_statistics.outsideCellCount;
             return;
 
-        case MyVoxel::Geometry::ShapeRelation::Inside:
+        case MyVoxel::ShapeRelation::Inside:
             ++m_statistics.insideCellCount;
             return;
 
-        case MyVoxel::Geometry::ShapeRelation::Intersecting:
+        case MyVoxel::ShapeRelation::Intersecting:
             ++m_statistics.intersectingCellCount;
             return;
         }
@@ -361,14 +361,14 @@ bool hasTwoRemainingLevels(const MyVoxel::VoxelCellAddress& address, MyVoxel::Vo
 }
 
 // 使用中心和半尺寸快速分类一个体素包围盒并记录统计。
-MyVoxel::Geometry::ShapeRelation classifyCellBoundsFast(
-    const MyVoxel::Geometry::ShapeQuery& query,
+MyVoxel::ShapeRelation classifyCellBoundsFast(
+    const MyVoxel::ShapeQuery& query,
     const CellBounds& bounds,
     ShapeCutRecorder& recorder)
 {
     recorder.scalarFastClassification();
 
-    const MyVoxel::Geometry::ShapeRelation relation =
+    const MyVoxel::ShapeRelation relation =
         query.classifyBoundsFast(bounds.center, bounds.extent);
 
     recorder.classify(relation);
@@ -377,11 +377,11 @@ MyVoxel::Geometry::ShapeRelation classifyCellBoundsFast(
 
 // 批量分类当前体素的八个等尺寸子体素，并返回子体素半尺寸。
 MyMath::Vector3 classifyAllChildBoundsFast(
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     const CellBounds& parentBounds,
     std::array<
-        MyVoxel::Geometry::ShapeRelation,
-        MyVoxel::Geometry::ShapeQuery::OctantCount>& relations,
+        MyVoxel::ShapeRelation,
+        MyVoxel::ShapeQuery::OctantCount>& relations,
     ShapeCutRecorder& recorder)
 {
     const MyMath::Vector3 childExtent =
@@ -406,12 +406,12 @@ MyMath::Vector3 classifyAllChildBoundsFast(
 
 // 根据活动子体素数量选择批量或逐个快速分类，并返回子体素半尺寸。
 MyMath::Vector3 classifyActiveChildBoundsFast(
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     const CellBounds& parentBounds,
     std::uint8_t activeMask,
     std::array<
-        MyVoxel::Geometry::ShapeRelation,
-        MyVoxel::Geometry::ShapeQuery::OctantCount>& relations,
+        MyVoxel::ShapeRelation,
+        MyVoxel::ShapeQuery::OctantCount>& relations,
     ShapeCutRecorder& recorder)
 {
     MYVOXEL_ASSERT_MESSAGE(
@@ -428,7 +428,7 @@ MyMath::Vector3 classifyActiveChildBoundsFast(
             recorder);
     }
 
-    relations.fill(MyVoxel::Geometry::ShapeRelation::Outside);
+    relations.fill(MyVoxel::ShapeRelation::Outside);
 
     const MyMath::Vector3 childExtent =
         parentBounds.extent * CellCenterScale;
@@ -458,7 +458,7 @@ MyMath::Vector3 classifyActiveChildBoundsFast(
 
 // 对最高层相交体素执行中心采样。
 bool toolContainsCellCenter(
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     const CellBounds& bounds,
     ShapeCutRecorder& recorder)
 {
@@ -468,20 +468,20 @@ bool toolContainsCellCenter(
 
 // 返回最高层体素是否被连续几何体覆盖。
 bool toolContainsMaximumCell(
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     const CellBounds& bounds,
-    MyVoxel::Geometry::ShapeRelation relation,
+    MyVoxel::ShapeRelation relation,
     ShapeCutRecorder& recorder)
 {
     switch (relation)
     {
-    case MyVoxel::Geometry::ShapeRelation::Outside:
+    case MyVoxel::ShapeRelation::Outside:
         return false;
 
-    case MyVoxel::Geometry::ShapeRelation::Inside:
+    case MyVoxel::ShapeRelation::Inside:
         return true;
 
-    case MyVoxel::Geometry::ShapeRelation::Intersecting:
+    case MyVoxel::ShapeRelation::Intersecting:
         return toolContainsCellCenter(
             query,
             bounds,
@@ -494,7 +494,7 @@ bool toolContainsMaximumCell(
 
 // 生成当前逻辑体素下面两级对应的64位工具材料掩码。
 std::uint64_t buildToolLeafMask(
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     const CellBounds& cellBounds,
     const MyVoxel::VoxelCellAddress& address,
     MyVoxel::VoxelLevel maximumLevel,
@@ -509,8 +509,8 @@ std::uint64_t buildToolLeafMask(
     std::uint64_t toolMask = MyVoxel::EmptyVoxelLeafMask;
 
     std::array<
-        MyVoxel::Geometry::ShapeRelation,
-        MyVoxel::Geometry::ShapeQuery::OctantCount> coarseRelations;
+        MyVoxel::ShapeRelation,
+        MyVoxel::ShapeQuery::OctantCount> coarseRelations;
 
     const MyMath::Vector3 coarseExtent =
         classifyAllChildBoundsFast(
@@ -525,15 +525,15 @@ std::uint64_t buildToolLeafMask(
     {
         const MyVoxel::VoxelCorner coarseCorner =
             static_cast<MyVoxel::VoxelCorner>(coarseIndex);
-        const MyVoxel::Geometry::ShapeRelation coarseRelation =
+        const MyVoxel::ShapeRelation coarseRelation =
             coarseRelations[coarseIndex];
 
-        if (coarseRelation == MyVoxel::Geometry::ShapeRelation::Outside)
+        if (coarseRelation == MyVoxel::ShapeRelation::Outside)
         {
             continue;
         }
 
-        if (coarseRelation == MyVoxel::Geometry::ShapeRelation::Inside)
+        if (coarseRelation == MyVoxel::ShapeRelation::Inside)
         {
             toolMask |= MyVoxel::leafGroupMask(coarseCorner);
             continue;
@@ -548,8 +548,8 @@ std::uint64_t buildToolLeafMask(
         recorder.derivedChildBounds();
 
         std::array<
-            MyVoxel::Geometry::ShapeRelation,
-            MyVoxel::Geometry::ShapeQuery::OctantCount> fineRelations;
+            MyVoxel::ShapeRelation,
+            MyVoxel::ShapeQuery::OctantCount> fineRelations;
 
         const MyMath::Vector3 fineExtent =
             classifyAllChildBoundsFast(
@@ -566,15 +566,15 @@ std::uint64_t buildToolLeafMask(
         {
             const MyVoxel::VoxelCorner fineCorner =
                 static_cast<MyVoxel::VoxelCorner>(fineIndex);
-            const MyVoxel::Geometry::ShapeRelation fineRelation =
+            const MyVoxel::ShapeRelation fineRelation =
                 fineRelations[fineIndex];
 
-            if (fineRelation == MyVoxel::Geometry::ShapeRelation::Outside)
+            if (fineRelation == MyVoxel::ShapeRelation::Outside)
             {
                 continue;
             }
 
-            if (fineRelation == MyVoxel::Geometry::ShapeRelation::Inside)
+            if (fineRelation == MyVoxel::ShapeRelation::Inside)
             {
                 groupMask = static_cast<std::uint8_t>(
                     groupMask |
@@ -702,11 +702,11 @@ void recordMaterialChange(
 // 递归从当前工件逻辑体素中减去连续几何体。
 CutCellResult cutCell(
     MyVoxel::VoxelTreeEditor editor,
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     const CellBounds& cellBounds,
     const MyVoxel::VoxelCellAddress& address,
     MyVoxel::VoxelLevel maximumLevel,
-    MyVoxel::Geometry::ShapeRelation relation,
+    MyVoxel::ShapeRelation relation,
     const MyVoxel::VoxelShapeSession& session,
     MyVoxel::VoxelChangeSet::DirtyCellRegion* dirtyRegion,
     ShapeCutRecorder& recorder)
@@ -719,12 +719,12 @@ CutCellResult cutCell(
         return CutCellResult(MyVoxel::VoxelState::Empty, false);
     }
 
-    if (relation == MyVoxel::Geometry::ShapeRelation::Outside)
+    if (relation == MyVoxel::ShapeRelation::Outside)
     {
         return CutCellResult(editor.state(), false);
     }
 
-    if (relation == MyVoxel::Geometry::ShapeRelation::Inside)
+    if (relation == MyVoxel::ShapeRelation::Inside)
     {
         if (editor.isSubdivided())
         {
@@ -740,7 +740,7 @@ CutCellResult cutCell(
     }
 
     MYVOXEL_ASSERT_MESSAGE(
-        relation == MyVoxel::Geometry::ShapeRelation::Intersecting,
+        relation == MyVoxel::ShapeRelation::Intersecting,
         "Shape cut requires a valid ShapeRelation.");
 
     if (address.level == maximumLevel)
@@ -815,8 +815,8 @@ CutCellResult cutCell(
         "A non-empty cut cell must contain at least one active child.");
 
     std::array<
-        MyVoxel::Geometry::ShapeRelation,
-        MyVoxel::Geometry::ShapeQuery::OctantCount> childRelations;
+        MyVoxel::ShapeRelation,
+        MyVoxel::ShapeQuery::OctantCount> childRelations;
 
     const MyMath::Vector3 childExtent =
         classifyActiveChildBoundsFast(
@@ -835,7 +835,7 @@ CutCellResult cutCell(
             MyVoxel::takeFirstNodeCorner(remainingMask);
 
         if (childRelations[static_cast<unsigned int>(corner)] ==
-            MyVoxel::Geometry::ShapeRelation::Outside)
+            MyVoxel::ShapeRelation::Outside)
         {
             candidateMask = static_cast<std::uint8_t>(
                 candidateMask &
@@ -902,7 +902,7 @@ CutCellResult cutCell(
 // 串行分类几何包围盒范围内的已有根。
 void classifyCandidateRoots(
     const MyVoxel::VoxelShape& object,
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     const MyVoxel::VoxelGrid& grid,
     std::vector<MyVoxel::VoxelCellIndex>& removedRootIndices,
     std::vector<IntersectingRootPreparation>& intersectingRoots,
@@ -928,7 +928,7 @@ void classifyCandidateRoots(
 
             recorder.rootBoundsConstruction();
 
-            const MyVoxel::Geometry::ShapeRelation relation =
+            const MyVoxel::ShapeRelation relation =
                 classifyCellBoundsFast(
                     query,
                     rootBounds,
@@ -938,14 +938,14 @@ void classifyCandidateRoots(
 
             switch (relation)
             {
-            case MyVoxel::Geometry::ShapeRelation::Outside:
+            case MyVoxel::ShapeRelation::Outside:
                 return;
 
-            case MyVoxel::Geometry::ShapeRelation::Inside:
+            case MyVoxel::ShapeRelation::Inside:
                 removedRootIndices.push_back(rootAddress.index);
                 return;
 
-            case MyVoxel::Geometry::ShapeRelation::Intersecting:
+            case MyVoxel::ShapeRelation::Intersecting:
                 intersectingRoots.push_back(
                     IntersectingRootPreparation(
                         rootAddress.index,
@@ -994,7 +994,7 @@ void prepareRootCutItems(
 // 在独立根树副本上执行一次相交根递归切削。
 void processIntersectingRootCut(
     RootCutItem& item,
-    const MyVoxel::Geometry::ShapeQuery& query,
+    const MyVoxel::ShapeQuery& query,
     MyVoxel::VoxelLevel maximumLevel,
     const MyVoxel::VoxelShapeSession& session,
     bool trackMaterialChanges)
@@ -1019,7 +1019,7 @@ void processIntersectingRootCut(
             item.rootBounds,
             rootAddress,
             maximumLevel,
-            MyVoxel::Geometry::ShapeRelation::Intersecting,
+            MyVoxel::ShapeRelation::Intersecting,
             session,
             trackMaterialChanges
                 ? &item.dirtyRegion
@@ -1177,12 +1177,12 @@ void storeChanges(MyVoxel::VoxelShapeSession& session, MyVoxel::VoxelChangeSet* 
 
 // 执行连续几何直接差集。
 bool applyShapeCut(MyVoxel::VoxelShape& object,
-                   const MyVoxel::Geometry::ShapeInstance& tool,
+                   const MyVoxel::Shape& tool,
                    MyVoxel::VoxelChangeSet* changes,
                    ShapeCutRecorder& recorder)
 {
     MYVOXEL_ASSERT_MESSAGE(object.isValid(), "Shape cut requires a valid VoxelShape.");
-    MYVOXEL_ASSERT_MESSAGE(tool.isValid(), "Shape cut requires a valid ShapeInstance.");
+    MYVOXEL_ASSERT_MESSAGE(tool.isValid(), "Shape cut requires a valid Shape.");
 
     resetChanges(object, changes);
 
@@ -1193,8 +1193,8 @@ bool applyShapeCut(MyVoxel::VoxelShape& object,
 
     const MyMath::Matrix4 objectTransform = object.transform();
     const MyVoxel::VoxelGrid grid = object.grid();
-    const MyVoxel::Geometry::ShapeInstance toolValue = tool;
-    const MyVoxel::Geometry::ShapeQuery preparationQuery(
+    const MyVoxel::Shape toolValue = tool;
+    const MyVoxel::ShapeQuery preparationQuery(
         toolValue,
         objectTransform);
 
@@ -1265,7 +1265,7 @@ bool applyShapeCut(MyVoxel::VoxelShape& object,
             [&](std::size_t blockBegin, std::size_t blockEnd)
             {
                 // 每个批次使用独立ShapeQuery，避免未来查询器增加内部缓存后形成跨线程共享状态。
-                const MyVoxel::Geometry::ShapeQuery query(
+                const MyVoxel::ShapeQuery query(
                     toolValue,
                     objectTransform);
 
@@ -1407,7 +1407,7 @@ void ShapeCutStatistics::accumulate(const ShapeCutStatistics& other)
 
 #endif
 
-bool ShapeCutAlgorithm::apply(VoxelShape& object, const Geometry::ShapeInstance& tool, VoxelChangeSet* changes)
+bool ShapeCutAlgorithm::apply(VoxelShape& object, const Shape& tool, VoxelChangeSet* changes)
 {
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
 
@@ -1424,7 +1424,7 @@ bool ShapeCutAlgorithm::apply(VoxelShape& object, const Geometry::ShapeInstance&
 
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
 
-bool ShapeCutAlgorithm::apply(VoxelShape& object, const Geometry::ShapeInstance& tool,
+bool ShapeCutAlgorithm::apply(VoxelShape& object, const Shape& tool,
                               VoxelChangeSet* changes, ShapeCutStatistics& statistics)
 {
     statistics.reset();

@@ -1,5 +1,5 @@
-#ifndef MYVOXEL_GEOMETRY_Geometry_ConeFrustum_H
-#define MYVOXEL_GEOMETRY_Geometry_ConeFrustum_H
+#ifndef MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_CONEFRUSTUM_H
+#define MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_CONEFRUSTUM_H
 
 #include "Geometry_Shape.h"
 
@@ -33,9 +33,6 @@ public:
     // 返回标准圆锥台类型。
     ShapeKind kind() const override;
 
-    // 返回圆锥台局部轴对齐包围盒。
-    Bounds3 localBounds() const override;
-
     /// 空间查询
 
     // 判断指定局部坐标点是否位于圆锥台内部或边界上。
@@ -53,10 +50,9 @@ private:
     double m_topRadius; // 位于局部Z正方向顶面的半径。
     double m_height; // 圆锥台完整高度。
     double m_halfHeight; // 圆锥台半高度。
-    Bounds3 m_bounds; // 圆锥台局部轴对齐包围盒。
 };
 
 
 }
 
-#endif // MYVOXEL_GEOMETRY_Geometry_ConeFrustum_H
+#endif // MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_CONEFRUSTUM_H

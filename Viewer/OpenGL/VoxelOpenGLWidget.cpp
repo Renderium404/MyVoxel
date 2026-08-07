@@ -5,9 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
-#include <limits>
 #include <utility>
-#include <vector>
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -31,26 +29,23 @@ const float MaximumCameraScale = 50.0f; // 滚轮缩放允许的最大相机距�
 
 typedef std::chrono::steady_clock SnapshotClock;
 
-// 返回两个稳定时钟时间点之间的毫秒数。
 double elapsedMilliseconds(const SnapshotClock::time_point& begin, const SnapshotClock::time_point& end)
 {
     return std::chrono::duration<double, std::milli>(end - begin).count();
 }
 
-// 将浮点值限制在指定闭区间。
 float clampFloat(float value, float minimum, float maximum)
 {
     return (std::max)(minimum, (std::min)(value, maximum));
 }
 
-// 将角度转换为弧度。
 float degreeToRadian(float degree)
 {
     return degree * Pi / 180.0f;
 }
 
-// 将局部轴对齐包围盒的八个角点变换到世界空间并扩展场景范围。
-void expandWorldBounds(const MyVoxel::Bounds3& localBounds, const QMatrix4x4& modelMatrix, bool& hasPoint, QVector3D& minimum, QVector3D& maximum)
+void expandWorldBounds(const MyVoxel::Bounds3& localBounds, const QMatrix4x4& modelMatrix,
+                       bool& hasPoint, QVector3D& minimum, QVector3D& maximum)
 {
     if (!localBounds.isValid())
     {
@@ -63,13 +58,13 @@ void expandWorldBounds(const MyVoxel::Bounds3& localBounds, const QMatrix4x4& mo
     const float y[2] = {static_cast<float>(localMinimum.y()), static_cast<float>(localMaximum.y())};
     const float z[2] = {static_cast<float>(localMinimum.z()), static_cast<float>(localMaximum.z())};
 
-    for (unsigned int xIndex = 0; xIndex < 2; ++xIndex)
+    for (unsigned int xi = 0; xi < 2; ++xi)
     {
-        for (unsigned int yIndex = 0; yIndex < 2; ++yIndex)
+        for (unsigned int yi = 0; yi < 2; ++yi)
         {
-            for (unsigned int zIndex = 0; zIndex < 2; ++zIndex)
+            for (unsigned int zi = 0; zi < 2; ++zi)
             {
-                const QVector3D point = modelMatrix.map(QVector3D(x[xIndex], y[yIndex], z[zIndex]));
+                const QVector3D point = modelMatrix.map(QVector3D(x[xi], y[yi], z[zi]));
 
                 if (!hasPoint)
                 {
@@ -90,7 +85,6 @@ void expandWorldBounds(const MyVoxel::Bounds3& localBounds, const QMatrix4x4& mo
     }
 }
 
-// 返回GUI侧场景范围更新事件类型。
 QEvent::Type sceneBoundsChangedEventType()
 {
     static const int type = QEvent::registerEventType();
@@ -102,18 +96,23 @@ QEvent::Type sceneBoundsChangedEventType()
 namespace MyVoxelViewer
 {
 
-VoxelOpenGLWidget::SceneObjectInfo::SceneObjectInfo(MeshObjectKind kindValue, const QMatrix4x4& modelMatrixValue)
-    : kind(kindValue)
-    , modelMatrix(modelMatrixValue)
-    , visible(true)
-    , nextMeshVersion(1)
+VoxelOpenGLWidget::PartInfo::PartInfo()
+    : version(0)
+    , active(false)
+    , triangleCount(0)
+    , segmentCount(0)
 {
+}
+
+VoxelOpenGLWidget::SceneObjectInfo::SceneObjectInfo()
+    : kind(SceneMeshObject)
+    , visible(true)
+{
+    modelMatrix.setToIdentity();
 }
 
 VoxelOpenGLWidget::VoxelOpenGLWidget(QWidget* parent)
     : QOpenGLWidget(parent)
-    , m_nextMeshObjectId(1)
-    , m_defaultVoxelObjectId(0)
     , m_lastUpdatedMeshPartCount(0)
     , m_sceneBoundsEventPending(0)
     , m_renderThread(new VoxelRenderThread())
@@ -133,16 +132,13 @@ VoxelOpenGLWidget::VoxelOpenGLWidget(QWidget* parent)
     , m_pitch(35.264f)
     , m_viewportSize(1, 1)
 {
-    // OpenGL 3.3 Core提供共享纹理、VAO、现代Shader和稳定的跨平台顶点接口。
     QSurfaceFormat format;
     format.setVersion(3, 3);
     format.setProfile(QSurfaceFormat::CoreProfile);
     format.setDepthBufferSize(24);
     format.setStencilBufferSize(8);
-    format.setSamples(0); // 多重采样由后台FBO扩展阶段决定，当前保持共享颜色纹理直接可采样。
+    format.setSamples(0); // 当前后台FBO使用普通共享颜色纹理，不启用MSAA。
     setFormat(format);
-
-    m_defaultModelMatrix.setToIdentity();
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(false);
     setMinimumSize(480, 320);
@@ -151,281 +147,199 @@ VoxelOpenGLWidget::VoxelOpenGLWidget(QWidget* parent)
 VoxelOpenGLWidget::~VoxelOpenGLWidget()
 {
     cleanupOpenGL();
+    QMutexLocker locker(&m_sceneMutex);
 
+    for (SceneObjectMap::iterator iterator = m_sceneObjects.begin(); iterator != m_sceneObjects.end(); ++iterator)
     {
-        QMutexLocker locker(&m_sceneMutex);
-
-        for (SceneObjectMap::iterator iterator = m_sceneObjects.begin(); iterator != m_sceneObjects.end(); ++iterator)
-        {
-            delete iterator->second;
-        }
-
-        m_sceneObjects.clear();
+        delete iterator->second;
     }
 
+    m_sceneObjects.clear();
+    locker.unlock();
     delete m_renderThread;
     m_renderThread = nullptr;
 }
 
-/// 通用网格对象
+/// Display对象提交
 
-MeshObjectId VoxelOpenGLWidget::invalidMeshObjectId()
+bool VoxelOpenGLWidget::submitDisplaySnapshot(const MyVoxel::Display_MeshObjectSnapshot& snapshot)
 {
-    return static_cast<MeshObjectId>(0);
-}
-
-MeshObjectId VoxelOpenGLWidget::addMesh(const MyVoxel::Geometry::Mesh& mesh, const QMatrix4x4& modelMatrix)
-{
-    assert(mesh.isValid());
-    const SnapshotClock::time_point begin = SnapshotClock::now();
-    MeshObjectSnapshot snapshot;
-    MeshObjectId objectId = invalidMeshObjectId();
-
+    if (!snapshot.isValid())
     {
-        QMutexLocker locker(&m_sceneMutex);
-        objectId = createSceneObjectLocked(MeshObjectKind::Mesh, modelMatrix);
-        SceneObjectInfo* object = findSceneObjectLocked(objectId);
-        assert(object);
-        snapshot = buildMeshSnapshotLocked(objectId, *object, mesh);
+        return false;
     }
 
-    const double copyMilliseconds = elapsedMilliseconds(begin, SnapshotClock::now());
-    m_renderThread->enqueueReplaceObject(std::move(snapshot), 0.0, copyMilliseconds);
-    requestBoundsUpdate();
-    return objectId;
-}
-
-bool VoxelOpenGLWidget::setMesh(MeshObjectId objectId, const MyVoxel::Geometry::Mesh& mesh)
-{
-    assert(mesh.isValid());
     const SnapshotClock::time_point begin = SnapshotClock::now();
-    MeshObjectSnapshot snapshot;
 
     {
         QMutexLocker locker(&m_sceneMutex);
-        SceneObjectInfo* object = findSceneObjectLocked(objectId);
+        SceneObjectInfo*& slot = m_sceneObjects[snapshot.objectId];
 
-        if (!object || object->kind != MeshObjectKind::Mesh)
+        if (!slot) slot = new SceneObjectInfo();
+
+        SceneObjectInfo& object = *slot;
+        object.kind = SceneMeshObject;
+        object.modelMatrix = toQMatrix4x4(snapshot.localToWorld);
+        object.visible = snapshot.visible;
+        object.parts.clear();
+
+        for (std::size_t index = 0; index < snapshot.parts.size(); ++index)
         {
-            return false;
+            const MyVoxel::Display_MeshPartSnapshot& source = snapshot.parts[index];
+            PartInfo part;
+            part.version = source.version;
+            part.active = true;
+            part.triangleCount = source.resource->triangleCount();
+            part.localBounds = source.resource->localBounds();
+            object.parts.insert(std::make_pair(source.partId, part));
         }
 
-        snapshot = buildMeshSnapshotLocked(objectId, *object, mesh);
+        rebuildObjectBounds(object);
+        m_lastUpdatedMeshPartCount = snapshot.parts.size();
     }
 
-    const double copyMilliseconds = elapsedMilliseconds(begin, SnapshotClock::now());
-    m_renderThread->enqueueReplaceObject(std::move(snapshot), 0.0, copyMilliseconds);
+    m_renderThread->enqueueReplaceObject(snapshot, elapsedMilliseconds(begin, SnapshotClock::now()), 0.0);
     requestBoundsUpdate();
     return true;
 }
 
-MeshObjectId VoxelOpenGLWidget::addMeshCache(const MyVoxel::VoxelSurfaceCache& cache, const QMatrix4x4& modelMatrix)
+bool VoxelOpenGLWidget::submitDisplaySnapshot(const MyVoxel::Display_LineObjectSnapshot& snapshot)
 {
-    const SnapshotClock::time_point begin = SnapshotClock::now();
-    MeshObjectSnapshot snapshot;
-    MeshObjectId objectId = invalidMeshObjectId();
-
+    if (!snapshot.isValid())
     {
-        QMutexLocker locker(&m_sceneMutex);
-        objectId = createSceneObjectLocked(MeshObjectKind::MeshCache, modelMatrix);
-        SceneObjectInfo* object = findSceneObjectLocked(objectId);
-        assert(object);
-        snapshot = buildMeshCacheSnapshotLocked(objectId, *object, cache);
+        return false;
     }
 
-    const double copyMilliseconds = elapsedMilliseconds(begin, SnapshotClock::now());
-    m_renderThread->enqueueReplaceObject(std::move(snapshot), 0.0, copyMilliseconds);
-    requestBoundsUpdate();
-    return objectId;
-}
-
-bool VoxelOpenGLWidget::setMeshCache(MeshObjectId objectId, const MyVoxel::VoxelSurfaceCache& cache)
-{
     const SnapshotClock::time_point begin = SnapshotClock::now();
-    MeshObjectSnapshot snapshot;
 
     {
         QMutexLocker locker(&m_sceneMutex);
-        SceneObjectInfo* object = findSceneObjectLocked(objectId);
+        SceneObjectInfo*& slot = m_sceneObjects[snapshot.objectId];
 
-        if (!object || object->kind != MeshObjectKind::MeshCache)
+        if (!slot) slot = new SceneObjectInfo();
+
+        SceneObjectInfo& object = *slot;
+        object.kind = SceneLineObject;
+        object.modelMatrix = toQMatrix4x4(snapshot.localToWorld);
+        object.visible = snapshot.visible;
+        object.parts.clear();
+
+        for (std::size_t index = 0; index < snapshot.parts.size(); ++index)
         {
-            return false;
+            const MyVoxel::Display_LinePartSnapshot& source = snapshot.parts[index];
+            PartInfo part;
+            part.version = source.version;
+            part.active = true;
+            part.segmentCount = source.resource->segmentCount();
+            part.localBounds = source.resource->localBounds();
+            object.parts.insert(std::make_pair(source.partId, part));
         }
 
-        snapshot = buildMeshCacheSnapshotLocked(objectId, *object, cache);
+        rebuildObjectBounds(object);
     }
 
-    const double copyMilliseconds = elapsedMilliseconds(begin, SnapshotClock::now());
-    m_renderThread->enqueueReplaceObject(std::move(snapshot), 0.0, copyMilliseconds);
+    m_renderThread->enqueueReplaceObject(snapshot, elapsedMilliseconds(begin, SnapshotClock::now()), 0.0);
     requestBoundsUpdate();
     return true;
 }
 
-bool VoxelOpenGLWidget::updateRootMeshes(MeshObjectId objectId, const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
+bool VoxelOpenGLWidget::submitDisplayUpdate(const MyVoxel::Display_MeshUpdate& update)
 {
-    const SnapshotClock::time_point totalStart = SnapshotClock::now();
-    double copyMilliseconds = 0.0;
-    std::vector<MeshPartSnapshot> snapshots;
+    if (!update.isValid())
+    {
+        return false;
+    }
+
+    const SnapshotClock::time_point begin = SnapshotClock::now();
+    MyVoxel::Display_MeshUpdate filtered;
+    filtered.objectId = update.objectId;
 
     {
         QMutexLocker locker(&m_sceneMutex);
-        SceneObjectInfo* object = findSceneObjectLocked(objectId);
+        SceneObjectInfo* object = findSceneObjectLocked(update.objectId);
 
-        if (!object || object->kind != MeshObjectKind::MeshCache)
+        if (!object || object->kind != SceneMeshObject)
         {
             m_lastUpdatedMeshPartCount = 0;
             return false;
         }
 
-        snapshots.reserve(changedRootIndices.size() * MyVoxel::VoxelFaceDirectionCount);
+        filtered.parts.reserve(update.parts.size());
 
-        for (MyVoxel::VoxelSurfaceCache::RootIndexSet::const_iterator rootIterator = changedRootIndices.begin(); rootIterator != changedRootIndices.end(); ++rootIterator)
+        for (std::size_t index = 0; index < update.parts.size(); ++index)
         {
-            const MyVoxel::VoxelSurfaceCache::RootEntry* rootEntry = cache.rootEntry(*rootIterator);
+            const MyVoxel::Display_MeshPartUpdate& source = update.parts[index];
+            SceneObjectInfo::PartMap::iterator iterator = object->parts.find(source.partId);
 
-            for (unsigned int directionValue = 0; directionValue < MyVoxel::VoxelFaceDirectionCount; ++directionValue)
+            if (iterator != object->parts.end() && source.version <= iterator->second.version)
             {
-                const MyVoxel::VoxelFaceDirection direction = static_cast<MyVoxel::VoxelFaceDirection>(directionValue);
-                const MeshPartIndex partIndex = MeshPartIndex::rootDirection(*rootIterator, direction);
-
-                if (!rootEntry)
-                {
-                    const bool hadPart = object->partTriangleCounts.erase(partIndex) > 0;
-                    object->partVersions.erase(partIndex);
-
-                    if (hadPart)
-                    {
-                        MeshPartSnapshot snapshot;
-                        snapshot.partIndex = partIndex;
-                        snapshot.removed = true;
-                        snapshots.push_back(snapshot);
-                    }
-
-                    continue;
-                }
-
-                const std::uint64_t currentVersion = rootEntry->directionMeshVersions[directionValue];
-                const SceneObjectInfo::PartVersionMap::const_iterator versionIterator = object->partVersions.find(partIndex);
-
-                if (versionIterator != object->partVersions.end() && versionIterator->second == currentVersion)
-                {
-                    continue;
-                }
-
-                object->partVersions[partIndex] = currentVersion;
-                const MyVoxel::Geometry::Mesh& directionMesh = rootEntry->directionMeshes[directionValue];
-
-                if (directionMesh.isEmpty())
-                {
-                    const bool hadPart = object->partTriangleCounts.erase(partIndex) > 0;
-
-                    if (hadPart)
-                    {
-                        MeshPartSnapshot snapshot;
-                        snapshot.partIndex = partIndex;
-                        snapshot.version = currentVersion;
-                        snapshot.removed = true;
-                        snapshots.push_back(snapshot);
-                    }
-
-                    continue;
-                }
-
-                object->partTriangleCounts[partIndex] = directionMesh.triangleCount();
-                const SnapshotClock::time_point copyStart = SnapshotClock::now();
-                snapshots.push_back(MeshPartSnapshot(partIndex, currentVersion, directionMesh));
-                copyMilliseconds += elapsedMilliseconds(copyStart, SnapshotClock::now());
+                continue;
             }
+
+            PartInfo& part = object->parts[source.partId];
+            part.version = source.version;
+
+            if (source.operation == MyVoxel::Display_MeshPartOperation::Replace)
+            {
+                part.active = true;
+                part.triangleCount = source.resource->triangleCount();
+                part.segmentCount = 0;
+                part.localBounds = source.resource->localBounds();
+            }
+            else
+            {
+                part.active = false;
+                part.triangleCount = 0;
+                part.segmentCount = 0;
+                part.localBounds.clear();
+            }
+
+            filtered.parts.push_back(source);
         }
 
-        object->localBounds = cache.localBounds();
-        m_lastUpdatedMeshPartCount = snapshots.size();
+        rebuildObjectBounds(*object);
+        m_lastUpdatedMeshPartCount = filtered.parts.size();
     }
 
-    const double totalMilliseconds = elapsedMilliseconds(totalStart, SnapshotClock::now());
-    const double cacheMilliseconds = (std::max)(0.0, totalMilliseconds - copyMilliseconds);
-
-    if (!snapshots.empty())
+    if (filtered.parts.empty())
     {
-        m_renderThread->enqueueUpdateParts(objectId, std::move(snapshots), cacheMilliseconds, copyMilliseconds);
+        return true;
     }
 
-    return true;
-}
-
-bool VoxelOpenGLWidget::setMeshObjectMatrix(MeshObjectId objectId, const QMatrix4x4& matrix)
-{
-    {
-        QMutexLocker locker(&m_sceneMutex);
-        SceneObjectInfo* object = findSceneObjectLocked(objectId);
-
-        if (!object)
-        {
-            return false;
-        }
-
-        object->modelMatrix = matrix;
-    }
-
-    m_renderThread->enqueueSetObjectMatrix(objectId, matrix);
-    return true;
-}
-
-const QMatrix4x4* VoxelOpenGLWidget::meshObjectMatrix(MeshObjectId objectId) const
-{
-    QMutexLocker locker(&m_sceneMutex);
-    const SceneObjectInfo* object = findSceneObjectLocked(objectId);
-    return object ? &object->modelMatrix : nullptr;
-}
-
-bool VoxelOpenGLWidget::meshObjectMatrix(MeshObjectId objectId, QMatrix4x4& matrix) const
-{
-    QMutexLocker locker(&m_sceneMutex);
-    const SceneObjectInfo* object = findSceneObjectLocked(objectId);
-
-    if (!object)
-    {
-        return false;
-    }
-
-    matrix = object->modelMatrix;
-    return true;
-}
-
-bool VoxelOpenGLWidget::setMeshObjectVisible(MeshObjectId objectId, bool visible)
-{
-    {
-        QMutexLocker locker(&m_sceneMutex);
-        SceneObjectInfo* object = findSceneObjectLocked(objectId);
-
-        if (!object)
-        {
-            return false;
-        }
-
-        if (object->visible == visible)
-        {
-            return true;
-        }
-
-        object->visible = visible;
-    }
-
-    m_renderThread->enqueueSetObjectVisible(objectId, visible);
+    m_renderThread->enqueueUpdateParts(filtered, elapsedMilliseconds(begin, SnapshotClock::now()), 0.0);
     requestBoundsUpdate();
     return true;
 }
 
-bool VoxelOpenGLWidget::isMeshObjectVisible(MeshObjectId objectId) const
+bool VoxelOpenGLWidget::submitDisplayStateUpdate(const MyVoxel::Display_MeshStateUpdate& update)
 {
-    QMutexLocker locker(&m_sceneMutex);
-    const SceneObjectInfo* object = findSceneObjectLocked(objectId);
-    return object && object->visible;
+    if (!update.isValid())
+    {
+        return false;
+    }
+
+    {
+        QMutexLocker locker(&m_sceneMutex);
+        SceneObjectInfo* object = findSceneObjectLocked(update.objectId);
+
+        if (!object)
+        {
+            return false;
+        }
+
+        if (update.hasLocalToWorld) object->modelMatrix = toQMatrix4x4(update.localToWorld);
+        if (update.hasVisible) object->visible = update.visible;
+    }
+
+    m_renderThread->enqueueStateUpdate(update);
+    requestBoundsUpdate();
+    return true;
 }
 
-bool VoxelOpenGLWidget::removeMeshObject(MeshObjectId objectId)
+bool VoxelOpenGLWidget::removeDisplayObject(std::uint64_t objectId)
 {
+    SceneObjectInfo* removed = nullptr;
+
     {
         QMutexLocker locker(&m_sceneMutex);
         SceneObjectMap::iterator iterator = m_sceneObjects.find(objectId);
@@ -435,83 +349,105 @@ bool VoxelOpenGLWidget::removeMeshObject(MeshObjectId objectId)
             return false;
         }
 
-        delete iterator->second;
+        removed = iterator->second;
         m_sceneObjects.erase(iterator);
-
-        if (m_defaultVoxelObjectId == objectId)
-        {
-            m_defaultVoxelObjectId = invalidMeshObjectId();
-        }
     }
 
+    delete removed;
     m_renderThread->enqueueRemoveObject(objectId);
     requestBoundsUpdate();
     return true;
 }
 
-void VoxelOpenGLWidget::clearMeshes()
+void VoxelOpenGLWidget::clearDisplayObjects()
 {
+    SceneObjectMap oldObjects;
+
     {
         QMutexLocker locker(&m_sceneMutex);
-        for (SceneObjectMap::iterator iterator = m_sceneObjects.begin(); iterator != m_sceneObjects.end(); ++iterator)
-        {
-            delete iterator->second;
-        }
-
-        m_sceneObjects.clear();
-        m_defaultVoxelObjectId = invalidMeshObjectId();
+        oldObjects.swap(m_sceneObjects);
         m_lastUpdatedMeshPartCount = 0;
     }
 
-    m_renderThread->enqueueClearObjects();
+    for (SceneObjectMap::iterator iterator = oldObjects.begin(); iterator != oldObjects.end(); ++iterator)
+    {
+        delete iterator->second;
+    }
 
-    if (QThread::currentThread() == thread())
-    {
-        fitAll();
-    }
-    else
-    {
-        requestBoundsUpdate();
-    }
+    m_renderThread->enqueueClearObjects();
+    requestBoundsUpdate();
 }
 
-bool VoxelOpenGLWidget::containsMeshObject(MeshObjectId objectId) const
+/// Display对象查询
+
+bool VoxelOpenGLWidget::containsDisplayObject(std::uint64_t objectId) const
 {
     QMutexLocker locker(&m_sceneMutex);
     return findSceneObjectLocked(objectId) != nullptr;
 }
 
-std::size_t VoxelOpenGLWidget::meshObjectCount() const
+std::size_t VoxelOpenGLWidget::displayObjectCount() const
 {
     QMutexLocker locker(&m_sceneMutex);
     return m_sceneObjects.size();
 }
 
-std::size_t VoxelOpenGLWidget::meshObjectPartCount(MeshObjectId objectId) const
+std::size_t VoxelOpenGLWidget::displayObjectPartCount(std::uint64_t objectId) const
 {
     QMutexLocker locker(&m_sceneMutex);
     const SceneObjectInfo* object = findSceneObjectLocked(objectId);
-    return object ? object->partTriangleCounts.size() : 0;
+
+    if (!object) return 0;
+
+    std::size_t count = 0;
+
+    for (SceneObjectInfo::PartMap::const_iterator iterator = object->parts.begin(); iterator != object->parts.end(); ++iterator)
+    {
+        if (iterator->second.active) ++count;
+    }
+
+    return count;
 }
 
-std::size_t VoxelOpenGLWidget::meshObjectTriangleCount(MeshObjectId objectId) const
+std::size_t VoxelOpenGLWidget::displayObjectTriangleCount(std::uint64_t objectId) const
 {
     QMutexLocker locker(&m_sceneMutex);
     const SceneObjectInfo* object = findSceneObjectLocked(objectId);
 
-    if (!object)
+    if (!object || object->kind != SceneMeshObject) return 0;
+
+    std::size_t count = 0;
+
+    for (SceneObjectInfo::PartMap::const_iterator iterator = object->parts.begin(); iterator != object->parts.end(); ++iterator)
     {
-        return 0;
+        if (iterator->second.active) count += iterator->second.triangleCount;
     }
 
-    std::size_t triangleCount = 0;
+    return count;
+}
 
-    for (SceneObjectInfo::PartTriangleCountMap::const_iterator iterator = object->partTriangleCounts.begin(); iterator != object->partTriangleCounts.end(); ++iterator)
+std::size_t VoxelOpenGLWidget::displayObjectSegmentCount(std::uint64_t objectId) const
+{
+    QMutexLocker locker(&m_sceneMutex);
+    const SceneObjectInfo* object = findSceneObjectLocked(objectId);
+
+    if (!object || object->kind != SceneLineObject) return 0;
+
+    std::size_t count = 0;
+
+    for (SceneObjectInfo::PartMap::const_iterator iterator = object->parts.begin(); iterator != object->parts.end(); ++iterator)
     {
-        triangleCount += iterator->second;
+        if (iterator->second.active) count += iterator->second.segmentCount;
     }
 
-    return triangleCount;
+    return count;
+}
+
+bool VoxelOpenGLWidget::isDisplayObjectVisible(std::uint64_t objectId) const
+{
+    QMutexLocker locker(&m_sceneMutex);
+    const SceneObjectInfo* object = findSceneObjectLocked(objectId);
+    return object && object->visible;
 }
 
 std::size_t VoxelOpenGLWidget::lastUpdatedMeshPartCount() const
@@ -520,137 +456,19 @@ std::size_t VoxelOpenGLWidget::lastUpdatedMeshPartCount() const
     return m_lastUpdatedMeshPartCount;
 }
 
-const MeshUpdateStatistics& VoxelOpenGLWidget::lastMeshUpdateStatistics() const
-{
-    return m_lastMeshUpdateStatistics;
-}
-
-const QString& VoxelOpenGLWidget::backgroundRenderError() const
-{
-    return m_backgroundRenderError;
-}
-
-/// 单体素对象兼容入口
-
-void VoxelOpenGLWidget::setMeshCache(const MyVoxel::VoxelSurfaceCache& cache)
-{
-    MeshObjectId objectId = invalidMeshObjectId();
-
-    {
-        QMutexLocker locker(&m_sceneMutex);
-        objectId = m_defaultVoxelObjectId;
-    }
-
-    if (objectId == invalidMeshObjectId())
-    {
-        objectId = addMeshCache(cache, m_defaultModelMatrix);
-        QMutexLocker locker(&m_sceneMutex);
-        m_defaultVoxelObjectId = objectId;
-    }
-    else
-    {
-        const bool replaced = setMeshCache(objectId, cache);
-        assert(replaced);
-    }
-
-    if (QThread::currentThread() == thread())
-    {
-        fitAll();
-    }
-}
-
-void VoxelOpenGLWidget::updateRootMeshes(const MyVoxel::VoxelSurfaceCache& cache, const MyVoxel::VoxelSurfaceCache::RootIndexSet& changedRootIndices)
-{
-    MeshObjectId objectId = invalidMeshObjectId();
-
-    {
-        QMutexLocker locker(&m_sceneMutex);
-        objectId = m_defaultVoxelObjectId;
-    }
-
-    if (objectId == invalidMeshObjectId())
-    {
-        setMeshCache(cache);
-        return;
-    }
-
-    const bool updated = updateRootMeshes(objectId, cache, changedRootIndices);
-    assert(updated);
-}
-
-std::size_t VoxelOpenGLWidget::rootMeshCount() const
-{
-    QMutexLocker locker(&m_sceneMutex);
-    const SceneObjectInfo* object = findSceneObjectLocked(m_defaultVoxelObjectId);
-
-    if (!object || object->kind != MeshObjectKind::MeshCache)
-    {
-        return 0;
-    }
-
-    std::size_t rootCount = 0;
-    bool hasPreviousRoot = false;
-    MyVoxel::VoxelCellIndex previousRoot;
-
-    for (SceneObjectInfo::PartVersionMap::const_iterator iterator = object->partVersions.begin(); iterator != object->partVersions.end(); ++iterator)
-    {
-        if (iterator->first.kind != MeshPartIndex::RootDirection)
-        {
-            continue;
-        }
-
-        if (!hasPreviousRoot || iterator->first.rootIndex != previousRoot)
-        {
-            previousRoot = iterator->first.rootIndex;
-            hasPreviousRoot = true;
-            ++rootCount;
-        }
-    }
-
-    return rootCount;
-}
-
-void VoxelOpenGLWidget::setModelMatrix(const QMatrix4x4& matrix)
-{
-    m_defaultModelMatrix = matrix;
-    MeshObjectId objectId = invalidMeshObjectId();
-
-    {
-        QMutexLocker locker(&m_sceneMutex);
-        objectId = m_defaultVoxelObjectId;
-    }
-
-    if (objectId != invalidMeshObjectId())
-    {
-        const bool updated = setMeshObjectMatrix(objectId, matrix);
-        assert(updated);
-    }
-
-    fitAll();
-}
-
-const QMatrix4x4& VoxelOpenGLWidget::modelMatrix() const
-{
-    return m_defaultModelMatrix;
-}
+const MeshUpdateStatistics& VoxelOpenGLWidget::lastMeshUpdateStatistics() const { return m_lastMeshUpdateStatistics; }
+const QString& VoxelOpenGLWidget::backgroundRenderError() const { return m_backgroundRenderError; }
 
 /// 显示模式
 
 void VoxelOpenGLWidget::setWireframe(bool enabled)
 {
-    if (m_wireframe == enabled)
-    {
-        return;
-    }
-
+    if (m_wireframe == enabled) return;
     m_wireframe = enabled;
     m_renderThread->enqueueWireframe(enabled);
 }
 
-bool VoxelOpenGLWidget::isWireframe() const
-{
-    return m_wireframe;
-}
+bool VoxelOpenGLWidget::isWireframe() const { return m_wireframe; }
 
 /// 相机控制
 
@@ -663,33 +481,10 @@ void VoxelOpenGLWidget::fitAll()
     submitCameraState();
 }
 
-void VoxelOpenGLWidget::setIsometricView()
-{
-    m_yaw = 45.0f;
-    m_pitch = 35.264f;
-    fitAll();
-}
-
-void VoxelOpenGLWidget::setFrontView()
-{
-    m_yaw = 90.0f;
-    m_pitch = 0.0f;
-    fitAll();
-}
-
-void VoxelOpenGLWidget::setTopView()
-{
-    m_yaw = 90.0f;
-    m_pitch = 89.0f;
-    fitAll();
-}
-
-void VoxelOpenGLWidget::setRightView()
-{
-    m_yaw = 0.0f;
-    m_pitch = 0.0f;
-    fitAll();
-}
+void VoxelOpenGLWidget::setIsometricView() { m_yaw = 45.0f; m_pitch = 35.264f; fitAll(); }
+void VoxelOpenGLWidget::setFrontView() { m_yaw = 90.0f; m_pitch = 0.0f; fitAll(); }
+void VoxelOpenGLWidget::setTopView() { m_yaw = 90.0f; m_pitch = 89.0f; fitAll(); }
+void VoxelOpenGLWidget::setRightView() { m_yaw = 0.0f; m_pitch = 0.0f; fitAll(); }
 
 /// Qt事件和OpenGL生命周期
 
@@ -767,28 +562,17 @@ void VoxelOpenGLWidget::initializeGL()
 
 void VoxelOpenGLWidget::resizeGL(int width, int height)
 {
-    if (m_functions)
-    {
-        m_functions->glViewport(0, 0, width, height);
-    }
-
+    if (m_functions) m_functions->glViewport(0, 0, width, height);
     m_viewportSize = QSize((std::max)(width, 1), (std::max)(height, 1));
     submitCameraState();
 }
 
 void VoxelOpenGLWidget::paintGL()
 {
-    if (!m_functions)
-    {
-        return;
-    }
-
+    if (!m_functions) return;
     m_functions->glClear(GL_COLOR_BUFFER_BIT);
 
-    if (!m_glInitialized || m_presentTextureId == 0)
-    {
-        return;
-    }
+    if (!m_glInitialized || m_presentTextureId == 0) return;
 
     m_functions->glDisable(GL_DEPTH_TEST);
     m_functions->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -807,38 +591,13 @@ void VoxelOpenGLWidget::keyPressEvent(QKeyEvent* event)
 {
     switch (event->key())
     {
-    case Qt::Key_F:
-        fitAll();
-        event->accept();
-        return;
-
-    case Qt::Key_1:
-        setIsometricView();
-        event->accept();
-        return;
-
-    case Qt::Key_2:
-        setFrontView();
-        event->accept();
-        return;
-
-    case Qt::Key_3:
-        setTopView();
-        event->accept();
-        return;
-
-    case Qt::Key_4:
-        setRightView();
-        event->accept();
-        return;
-
-    case Qt::Key_W:
-        setWireframe(!m_wireframe);
-        event->accept();
-        return;
-
-    default:
-        break;
+    case Qt::Key_F: fitAll(); event->accept(); return;
+    case Qt::Key_1: setIsometricView(); event->accept(); return;
+    case Qt::Key_2: setFrontView(); event->accept(); return;
+    case Qt::Key_3: setTopView(); event->accept(); return;
+    case Qt::Key_4: setRightView(); event->accept(); return;
+    case Qt::Key_W: setWireframe(!m_wireframe); event->accept(); return;
+    default: break;
     }
 
     QOpenGLWidget::keyPressEvent(event);
@@ -889,119 +648,35 @@ void VoxelOpenGLWidget::mouseDoubleClickEvent(QMouseEvent* event)
 
 void VoxelOpenGLWidget::wheelEvent(QWheelEvent* event)
 {
-    if (event->angleDelta().y() > 0)
-    {
-        m_cameraScale *= 0.90f;
-    }
-    else if (event->angleDelta().y() < 0)
-    {
-        m_cameraScale *= 1.10f;
-    }
-
+    if (event->angleDelta().y() > 0) m_cameraScale *= 0.90f;
+    else if (event->angleDelta().y() < 0) m_cameraScale *= 1.10f;
     m_cameraScale = clampFloat(m_cameraScale, MinimumCameraScale, MaximumCameraScale);
     submitCameraState();
     event->accept();
 }
 
-/// CPU场景和快照
+/// CPU场景元数据
 
-MeshObjectId VoxelOpenGLWidget::createSceneObjectLocked(MeshObjectKind kind, const QMatrix4x4& modelMatrix)
-{
-    assert(m_nextMeshObjectId != invalidMeshObjectId());
-    const MeshObjectId objectId = m_nextMeshObjectId;
-
-    if (m_nextMeshObjectId == (std::numeric_limits<MeshObjectId>::max)())
-    {
-        m_nextMeshObjectId = invalidMeshObjectId();
-    }
-    else
-    {
-        ++m_nextMeshObjectId;
-    }
-
-    SceneObjectInfo* object = new SceneObjectInfo(kind, modelMatrix);
-    const std::pair<SceneObjectMap::iterator, bool> inserted = m_sceneObjects.insert(std::make_pair(objectId, object));
-
-    if (!inserted.second)
-    {
-        delete object;
-        return invalidMeshObjectId();
-    }
-
-    return objectId;
-}
-
-VoxelOpenGLWidget::SceneObjectInfo* VoxelOpenGLWidget::findSceneObjectLocked(MeshObjectId objectId)
+VoxelOpenGLWidget::SceneObjectInfo* VoxelOpenGLWidget::findSceneObjectLocked(std::uint64_t objectId)
 {
     SceneObjectMap::iterator iterator = m_sceneObjects.find(objectId);
     return iterator == m_sceneObjects.end() ? nullptr : iterator->second;
 }
 
-const VoxelOpenGLWidget::SceneObjectInfo* VoxelOpenGLWidget::findSceneObjectLocked(MeshObjectId objectId) const
+const VoxelOpenGLWidget::SceneObjectInfo* VoxelOpenGLWidget::findSceneObjectLocked(std::uint64_t objectId) const
 {
     SceneObjectMap::const_iterator iterator = m_sceneObjects.find(objectId);
     return iterator == m_sceneObjects.end() ? nullptr : iterator->second;
 }
 
-MeshObjectSnapshot VoxelOpenGLWidget::buildMeshSnapshotLocked(MeshObjectId objectId, SceneObjectInfo& object, const MyVoxel::Geometry::Mesh& mesh)
+void VoxelOpenGLWidget::rebuildObjectBounds(SceneObjectInfo& object)
 {
-    assert(mesh.isValid());
-    object.partVersions.clear();
-    object.partTriangleCounts.clear();
-    object.localBounds = mesh.localBounds();
+    object.localBounds.clear();
 
-    MeshObjectSnapshot snapshot;
-    snapshot.objectId = objectId;
-    snapshot.kind = MeshObjectKind::Mesh;
-    snapshot.modelMatrix = object.modelMatrix;
-    snapshot.visible = object.visible;
-
-    if (!mesh.isEmpty())
+    for (SceneObjectInfo::PartMap::const_iterator iterator = object.parts.begin(); iterator != object.parts.end(); ++iterator)
     {
-        const MeshPartIndex partIndex = MeshPartIndex::single();
-        const std::uint64_t version = object.nextMeshVersion++;
-        object.partVersions[partIndex] = version;
-        object.partTriangleCounts[partIndex] = mesh.triangleCount();
-        snapshot.parts.push_back(MeshPartSnapshot(partIndex, version, mesh));
+        if (iterator->second.active) object.localBounds.include(iterator->second.localBounds);
     }
-
-    return snapshot;
-}
-
-MeshObjectSnapshot VoxelOpenGLWidget::buildMeshCacheSnapshotLocked(MeshObjectId objectId, SceneObjectInfo& object, const MyVoxel::VoxelSurfaceCache& cache)
-{
-    object.partVersions.clear();
-    object.partTriangleCounts.clear();
-    object.localBounds = cache.localBounds();
-
-    MeshObjectSnapshot snapshot;
-    snapshot.objectId = objectId;
-    snapshot.kind = MeshObjectKind::MeshCache;
-    snapshot.modelMatrix = object.modelMatrix;
-    snapshot.visible = object.visible;
-    snapshot.parts.reserve(cache.rootCount() * MyVoxel::VoxelFaceDirectionCount);
-
-    for (MyVoxel::VoxelSurfaceCache::RootEntryMap::const_iterator rootIterator = cache.rootEntries().begin(); rootIterator != cache.rootEntries().end(); ++rootIterator)
-    {
-        for (unsigned int directionValue = 0; directionValue < MyVoxel::VoxelFaceDirectionCount; ++directionValue)
-        {
-            const MyVoxel::VoxelFaceDirection direction = static_cast<MyVoxel::VoxelFaceDirection>(directionValue);
-            const MeshPartIndex partIndex = MeshPartIndex::rootDirection(rootIterator->first, direction);
-            const std::uint64_t version = rootIterator->second.directionMeshVersions[directionValue];
-            const MyVoxel::Geometry::Mesh& directionMesh = rootIterator->second.directionMeshes[directionValue];
-            object.partVersions[partIndex] = version;
-
-            if (directionMesh.isEmpty())
-            {
-                continue;
-            }
-
-            object.partTriangleCounts[partIndex] = directionMesh.triangleCount();
-            snapshot.parts.push_back(MeshPartSnapshot(partIndex, version, directionMesh));
-        }
-    }
-
-    return snapshot;
 }
 
 /// 后台OpenGL生命周期
@@ -1026,18 +701,20 @@ bool VoxelOpenGLWidget::createPresentResources()
         "out vec4 fragColor;\n"
         "void main()\n"
         "{\n"
-        "    fragColor = texture(u_texture, clamp(v_uv, vec2(0.0), vec2(1.0)));\n"
+        "    fragColor = texture(u_texture, v_uv);\n"
         "}\n";
 
-    if (!m_presentProgram.addShaderFromSourceCode(QOpenGLShader::Vertex, vertexShader) || !m_presentProgram.addShaderFromSourceCode(QOpenGLShader::Fragment, fragmentShader) || !m_presentProgram.link())
+    if (!m_presentProgram.addShaderFromSourceCode(QOpenGLShader::Vertex, vertexShader) ||
+        !m_presentProgram.addShaderFromSourceCode(QOpenGLShader::Fragment, fragmentShader) ||
+        !m_presentProgram.link())
     {
-        m_backgroundRenderError = QStringLiteral("GUI presentation shader initialization failed: ") + m_presentProgram.log();
+        m_backgroundRenderError = QStringLiteral("Present shader initialization failed: ") + m_presentProgram.log();
         return false;
     }
 
     if (!m_presentVao.create())
     {
-        m_backgroundRenderError = QStringLiteral("Failed to create the GUI presentation vertex array object.");
+        m_backgroundRenderError = QStringLiteral("Failed to create the present OpenGL vertex array object.");
         return false;
     }
 
@@ -1093,11 +770,7 @@ bool VoxelOpenGLWidget::startBackgroundRenderer()
 
 void VoxelOpenGLWidget::stopBackgroundRenderer()
 {
-    if (m_renderThread)
-    {
-        m_renderThread->stopRendering();
-    }
-
+    if (m_renderThread) m_renderThread->stopRendering();
     delete m_renderContext;
     m_renderContext = nullptr;
     delete m_offscreenSurface;
@@ -1110,10 +783,7 @@ void VoxelOpenGLWidget::stopBackgroundRenderer()
 
 void VoxelOpenGLWidget::cleanupOpenGL()
 {
-    if (!m_glInitialized && !m_renderContext && !m_offscreenSurface && !m_presentVao.isCreated())
-    {
-        return;
-    }
+    if (!m_glInitialized && !m_renderContext && !m_offscreenSurface && !m_presentVao.isCreated()) return;
 
     stopBackgroundRenderer();
     QCoreApplication::removePostedEvents(this, RenderFrameReadyEvent::eventType());
@@ -1122,12 +792,7 @@ void VoxelOpenGLWidget::cleanupOpenGL()
     if (context())
     {
         makeCurrent();
-
-        if (m_presentVao.isCreated())
-        {
-            m_presentVao.destroy();
-        }
-
+        if (m_presentVao.isCreated()) m_presentVao.destroy();
         m_presentProgram.removeAllShaders();
         doneCurrent();
     }
@@ -1151,12 +816,7 @@ void VoxelOpenGLWidget::updateBounds()
         {
             const SceneObjectInfo& object = *iterator->second;
 
-            if (!object.visible)
-            {
-                continue;
-            }
-
-            expandWorldBounds(object.localBounds, object.modelMatrix, hasPoint, minimum, maximum);
+            if (object.visible) expandWorldBounds(object.localBounds, object.modelMatrix, hasPoint, minimum, maximum);
         }
     }
 

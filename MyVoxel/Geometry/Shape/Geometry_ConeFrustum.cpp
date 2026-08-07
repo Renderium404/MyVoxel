@@ -58,16 +58,16 @@ namespace MyVoxel
 
 
 Geometry_ConeFrustum::Geometry_ConeFrustum(double bottomRadius, double topRadius, double height)
-    : m_bottomRadius(bottomRadius)
+    : Geometry_Shape(Bounds3(MyMath::Vector3(-(std::max)(bottomRadius, topRadius),
+                                             -(std::max)(bottomRadius, topRadius),
+                                             -height * HalfScale),
+                             MyMath::Vector3((std::max)(bottomRadius, topRadius),
+                                             (std::max)(bottomRadius, topRadius),
+                                             height * HalfScale)))
+    , m_bottomRadius(bottomRadius)
     , m_topRadius(topRadius)
     , m_height(height)
     , m_halfHeight(height * HalfScale)
-    , m_bounds(MyMath::Vector3(-(std::max)(bottomRadius, topRadius),
-                               -(std::max)(bottomRadius, topRadius),
-                               -height * HalfScale),
-               MyMath::Vector3((std::max)(bottomRadius, topRadius),
-                               (std::max)(bottomRadius, topRadius),
-                               height * HalfScale))
 {
     MYVOXEL_ASSERT_MESSAGE(isFiniteNonNegative(bottomRadius), "Geometry_ConeFrustum bottom radius must be finite and non-negative.");
     MYVOXEL_ASSERT_MESSAGE(isFiniteNonNegative(topRadius), "Geometry_ConeFrustum top radius must be finite and non-negative.");
@@ -108,10 +108,6 @@ ShapeKind Geometry_ConeFrustum::kind() const
     return ShapeKind::ConeFrustum;
 }
 
-Bounds3 Geometry_ConeFrustum::localBounds() const
-{
-    return m_bounds;
-}
 
 /// 空间查询
 

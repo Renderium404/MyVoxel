@@ -5,7 +5,7 @@
 
 #include "MyVoxel/Core/Change/VoxelChangeSet.h"
 #include "MyVoxel/Core/VoxelShape.h"
-#include "MyVoxel/Geometry/ShapeInstance.h"
+#include "MyVoxel/Topology/Shape.h"
 
 namespace MyVoxel
 {
@@ -65,20 +65,20 @@ struct ShapeCutStatistics
 
 #endif
 
-// 将一个连续几何实例直接从体素体中减去。
+// 将一个空间Shape实例直接从体素体中减去。
 //
-// 几何实例会转换到object的体素局部空间。
+// Shape会转换到object的体素局部空间。
 // 算法只访问几何包围盒范围内已有的工件根树，不构造工具VoxelShape。
 class ShapeCutAlgorithm
 {
 public:
     // 原地执行连续几何差集，返回object是否发生实际变化。
-    static bool apply(VoxelShape& object, const Geometry::ShapeInstance& tool, VoxelChangeSet* changes = nullptr);
+    static bool apply(VoxelShape& object, const Shape& tool, VoxelChangeSet* changes = nullptr);
 
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
 
     // 原地执行连续几何差集并记录内部统计，返回object是否发生实际变化。
-    static bool apply(VoxelShape& object, const Geometry::ShapeInstance& tool,
+    static bool apply(VoxelShape& object, const Shape& tool,
                       VoxelChangeSet* changes, ShapeCutStatistics& statistics);
 
 #endif

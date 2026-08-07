@@ -4,7 +4,6 @@
 #include "MyVoxel/Core/Change/VoxelChangeSet.h"
 #include "MyVoxel/Core/VoxelShape.h"
 #include "MyVoxel/Operation/VoxelBooleanMask.h"
-#include "MyVoxel/Geometry/ShapeInstance.h"
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
 #include "MyVoxel/Operation/Algorithm/VoxelForestBooleanAlgorithm.h"
 #endif
@@ -14,14 +13,6 @@ namespace MyVoxel
 namespace Operation
 {
 
-namespace Algorithm
-{
-
-#ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
-struct ShapeCutStatistics;
-#endif
-
-}
 
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
 
@@ -164,27 +155,7 @@ public:
                                    VoxelChangeSet* changes, BooleanOperationStatistics& statistics);
 
 #endif
-/// 连续几何差集
 
-// 返回从object中减去连续几何实例tool后的体素体。
-static VoxelShape subtract(const VoxelShape& object, const Geometry::ShapeInstance& tool,
-                           VoxelChangeSet* changes = nullptr);
-
-// 从object中原地减去连续几何实例tool，返回object是否发生实际变化。
-static bool subtractInPlace(VoxelShape& object, const Geometry::ShapeInstance& tool,
-                            VoxelChangeSet* changes = nullptr);
-
-#ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
-
-// 返回连续几何差集结果并输出几何切削统计。
-static VoxelShape subtract(const VoxelShape& object, const Geometry::ShapeInstance& tool,
-                           VoxelChangeSet* changes, Algorithm::ShapeCutStatistics& statistics);
-
-// 原地执行连续几何差集并输出几何切削统计。
-static bool subtractInPlace(VoxelShape& object, const Geometry::ShapeInstance& tool,
-                            VoxelChangeSet* changes, Algorithm::ShapeCutStatistics& statistics);
-
-#endif
 private:
     BooleanOperation() = delete;
 };

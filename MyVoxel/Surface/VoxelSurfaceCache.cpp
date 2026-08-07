@@ -1739,7 +1739,7 @@ struct RootDirectionMeshPlan
     }
 
     // 返回指定方向用于接收Mesher结果的临时网格。
-    MyVoxel::Geometry::Mesh& rebuiltMesh(unsigned int directionValue)
+    MyVoxel::Mesh& rebuiltMesh(unsigned int directionValue)
     {
         MYVOXEL_ASSERT_MESSAGE(
             needsRebuild(directionValue),
@@ -1749,7 +1749,7 @@ struct RootDirectionMeshPlan
     }
 
     // 返回指定方向在当前事务完成后应参与Root组合的网格。
-    const MyVoxel::Geometry::Mesh& resolvedMesh(
+    const MyVoxel::Mesh& resolvedMesh(
         unsigned int directionValue) const
     {
         MYVOXEL_ASSERT_MESSAGE(
@@ -1793,7 +1793,7 @@ struct RootDirectionMeshPlan
                      !targetMeshes[directionValue].isEmpty())
             {
                 targetMeshes[directionValue] =
-                    MyVoxel::Geometry::Mesh();
+                    MyVoxel::Mesh();
                 advanceDirectionMeshVersion(
                     targetVersions[directionValue]);
             }
@@ -1977,7 +1977,7 @@ struct RootDirectionMeshBuildTask
     const MyVoxel::VoxelRootFaceMasks* faceMasks; // 当前Root稳定的只读方向面掩码。
     const MyVoxel::VoxelRootSurfaceColorData* colorData; // 当前Root稳定的只读方向切片颜色数据。
     std::size_t reserveQuadCount; // 根据当前Root上一次实际结果计算的四边形预留容量。
-    MyVoxel::Geometry::Mesh mesh; // 当前方向独立生成的临时网格。
+    MyVoxel::Mesh mesh; // 当前方向独立生成的临时网格。
     MyVoxel::VoxelSurfaceMeshingStatistics meshingStatistics; // 当前方向构建阶段统计。
 };
 
@@ -1985,7 +1985,7 @@ struct RootDirectionMeshBuildTask
 template<typename RootItem>
 void buildRootMeshes(const MyVoxel::VoxelShape& shape,
                      std::vector<RootItem>& items,
-                     const MyVoxel::Geometry::MeshColor& defaultColor,
+                     const MyVoxel::Display_Color& defaultColor,
                      MyVoxel::VoxelSurfaceUpdateStatistics* statistics)
 {
     if (items.empty())
@@ -2048,7 +2048,7 @@ void buildRootMeshes(const MyVoxel::VoxelShape& shape,
             }
             else if (item.directionMeshPlan.reusesExisting(directionValue))
             {
-                const MyVoxel::Geometry::Mesh& reusedMesh =
+                const MyVoxel::Mesh& reusedMesh =
                     item.directionMeshPlan.resolvedMesh(directionValue);
 
                 MYVOXEL_ASSERT_MESSAGE(
@@ -2200,7 +2200,7 @@ void buildRootMeshes(const MyVoxel::VoxelShape& shape,
              directionValue < MyVoxel::VoxelFaceDirectionCount;
              ++directionValue)
         {
-            const MyVoxel::Geometry::Mesh& directionMesh =
+            const MyVoxel::Mesh& directionMesh =
                 item.directionMeshPlan.resolvedMesh(directionValue);
 
             MYVOXEL_ASSERT_MESSAGE(
@@ -2572,11 +2572,11 @@ VoxelSurfaceCache::RootEntry::RootEntry()
 
 void VoxelSurfaceCache::RootEntry::invalidateCombinedMesh()
 {
-    m_combinedMesh = Geometry::Mesh();
+    m_combinedMesh = Mesh();
     m_combinedMeshValid = false;
 }
 
-const Geometry::Mesh& VoxelSurfaceCache::RootEntry::combinedMesh() const
+const Mesh& VoxelSurfaceCache::RootEntry::combinedMesh() const
 {
     if (m_combinedMeshValid)
     {
@@ -2592,7 +2592,7 @@ const Geometry::Mesh& VoxelSurfaceCache::RootEntry::combinedMesh() const
          directionValue < VoxelFaceDirectionCount;
          ++directionValue)
     {
-        const Geometry::Mesh& directionMesh =
+        const Mesh& directionMesh =
             directionMeshes[directionValue];
 
         MYVOXEL_ASSERT_MESSAGE(
@@ -2611,7 +2611,7 @@ const Geometry::Mesh& VoxelSurfaceCache::RootEntry::combinedMesh() const
         indexCount += directionMesh.indexCount();
     }
 
-    m_combinedMesh = Geometry::Mesh();
+    m_combinedMesh = Mesh();
     m_combinedMesh.reserve(
         vertexCount,
         indexCount);
@@ -2620,7 +2620,7 @@ const Geometry::Mesh& VoxelSurfaceCache::RootEntry::combinedMesh() const
          directionValue < VoxelFaceDirectionCount;
          ++directionValue)
     {
-        const Geometry::Mesh& directionMesh =
+        const Mesh& directionMesh =
             directionMeshes[directionValue];
 
         if (!directionMesh.isEmpty())
@@ -2657,7 +2657,7 @@ void VoxelSurfaceCache::clear()
 
 void VoxelSurfaceCache::rebuild(
     const VoxelShape& shape,
-    const Geometry::MeshColor& defaultColorValue)
+    const Display_Color& defaultColorValue)
 {
     MYVOXEL_ASSERT_MESSAGE(
         shape.isValid(),
@@ -2735,14 +2735,14 @@ void VoxelSurfaceCache::rebuild(
 
 VoxelSurfaceCacheUpdate VoxelSurfaceCache::update(const VoxelShape& shape,
                                                   const VoxelChangeSet& changes,
-                                                  const Geometry::MeshColor& newFaceColor)
+                                                  const Display_Color& newFaceColor)
 {
     return update(shape, changes, newFaceColor, nullptr);
 }
 
 VoxelSurfaceCacheUpdate VoxelSurfaceCache::update(const VoxelShape& shape,
                                                   const VoxelChangeSet& changes,
-                                                  const Geometry::MeshColor& newFaceColor,
+                                                  const Display_Color& newFaceColor,
                                                   VoxelSurfaceUpdateStatistics* statistics)
 {
     MYVOXEL_ASSERT_MESSAGE(shape.isValid(), "Voxel surface cache update requires a valid VoxelShape.");
@@ -3203,7 +3203,7 @@ VoxelSurfaceCacheUpdate VoxelSurfaceCache::update(const VoxelShape& shape,
 VoxelSurfaceCache::RootIndexSet VoxelSurfaceCache::setFaceColor(
     const VoxelShape& shape,
     const VoxelFaceSet& faces,
-    const Geometry::MeshColor& color)
+    const Display_Color& color)
 {
     MYVOXEL_ASSERT_MESSAGE(shape.isValid(), "Voxel surface cache face coloring requires a valid VoxelShape.");
     MYVOXEL_ASSERT_MESSAGE(
@@ -3389,7 +3389,7 @@ VoxelSurfaceCache::RootIndexSet VoxelSurfaceCache::clearFaceColors(const VoxelSh
 
 VoxelSurfaceCache::RootIndexSet VoxelSurfaceCache::setDefaultColor(
     const VoxelShape& shape,
-    const Geometry::MeshColor& color)
+    const Display_Color& color)
 {
     MYVOXEL_ASSERT_MESSAGE(shape.isValid(), "Voxel surface cache default coloring requires a valid VoxelShape.");
     MYVOXEL_ASSERT_MESSAGE(
@@ -3487,7 +3487,7 @@ std::size_t VoxelSurfaceCache::triangleCount() const
     return count;
 }
 
-const Geometry::MeshColor& VoxelSurfaceCache::defaultColor() const
+const Display_Color& VoxelSurfaceCache::defaultColor() const
 {
     return m_defaultColor;
 }
@@ -3516,7 +3516,7 @@ VoxelFaceSet VoxelSurfaceCache::rootFaces(const VoxelCellIndex& rootIndex) const
     return entry ? entry->faceMasks.toFaceSet() : VoxelFaceSet();
 }
 
-const Geometry::Mesh* VoxelSurfaceCache::rootMesh(
+const Mesh* VoxelSurfaceCache::rootMesh(
     const VoxelCellIndex& rootIndex) const
 {
     const RootEntry* entry = rootEntry(rootIndex);
@@ -3531,7 +3531,7 @@ VoxelSurfaceCache::rootDirectionMeshes(
     return entry ? &entry->directionMeshes : nullptr;
 }
 
-const Geometry::Mesh* VoxelSurfaceCache::rootDirectionMesh(
+const Mesh* VoxelSurfaceCache::rootDirectionMesh(
     const VoxelCellIndex& rootIndex,
     VoxelFaceDirection direction) const
 {
@@ -3595,9 +3595,9 @@ VoxelFaceSet VoxelSurfaceCache::combinedFaces() const
     return VoxelFaceSet(std::move(faces));
 }
 
-Geometry::Mesh VoxelSurfaceCache::combinedMesh() const
+Mesh VoxelSurfaceCache::combinedMesh() const
 {
-    Geometry::Mesh mesh;
+    Mesh mesh;
     mesh.reserve(
         vertexCount(),
         triangleCount() * 3);
@@ -3610,7 +3610,7 @@ Geometry::Mesh VoxelSurfaceCache::combinedMesh() const
              directionValue < VoxelFaceDirectionCount;
              ++directionValue)
         {
-            const Geometry::Mesh& directionMesh =
+            const Mesh& directionMesh =
                 iterator->second.directionMeshes[directionValue];
 
             if (!directionMesh.isEmpty())

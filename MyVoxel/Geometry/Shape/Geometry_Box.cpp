@@ -34,11 +34,11 @@ namespace MyVoxel
 
 
 Geometry_Box::Geometry_Box(double sizeX, double sizeY, double sizeZ)
-    : m_sizeX(sizeX)
+    : Geometry_Shape(Bounds3(MyMath::Vector3(-sizeX * HalfScale, -sizeY * HalfScale, -sizeZ * HalfScale),
+                             MyMath::Vector3(sizeX * HalfScale, sizeY * HalfScale, sizeZ * HalfScale)))
+    , m_sizeX(sizeX)
     , m_sizeY(sizeY)
     , m_sizeZ(sizeZ)
-    , m_bounds(MyMath::Vector3(-sizeX * HalfScale, -sizeY * HalfScale, -sizeZ * HalfScale),
-               MyMath::Vector3(sizeX * HalfScale, sizeY * HalfScale, sizeZ * HalfScale))
 {
     MYVOXEL_ASSERT_MESSAGE(isFinitePositive(sizeX), "Geometry_Box sizeX must be finite and greater than zero.");
     MYVOXEL_ASSERT_MESSAGE(isFinitePositive(sizeY), "Geometry_Box sizeY must be finite and greater than zero.");
@@ -69,24 +69,20 @@ ShapeKind Geometry_Box::kind() const
     return ShapeKind::Box;
 }
 
-Bounds3 Geometry_Box::localBounds() const
-{
-    return m_bounds;
-}
 
 /// 空间查询
 
 bool Geometry_Box::containsLocalPoint(const MyMath::Vector3& point) const
 {
     MYVOXEL_ASSERT_MESSAGE(point.isFinite(), "Geometry_Box query point must be finite.");
-    return m_bounds.contains(point);
+    return localBounds().contains(point);
 }
 
 ShapeRelation Geometry_Box::classifyLocalBounds(const Bounds3& bounds) const
 {
     MYVOXEL_ASSERT_MESSAGE(bounds.isValid(), "Geometry_Box classification bounds must be valid.");
 
-    const Bounds3 boxBounds = localBounds();
+    const Bounds3& boxBounds = localBounds();
     const MyMath::Vector3& boxMinimum = boxBounds.minimum();
     const MyMath::Vector3& boxMaximum = boxBounds.maximum();
     const MyMath::Vector3& boundsMinimum = bounds.minimum();

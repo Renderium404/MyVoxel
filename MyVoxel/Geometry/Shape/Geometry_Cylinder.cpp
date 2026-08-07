@@ -53,11 +53,12 @@ namespace MyVoxel
 
 
 Geometry_Cylinder::Geometry_Cylinder(double radius, double height)
-    : m_radius(radius)
+    : Geometry_Shape(Bounds3(MyMath::Vector3(-radius, -radius, -height * HalfScale),
+                             MyMath::Vector3(radius, radius, height * HalfScale)))
+    , m_radius(radius)
     , m_radiusSquared(radius * radius)
     , m_height(height)
     , m_halfHeight(height * HalfScale)
-    , m_bounds(MyMath::Vector3(-radius, -radius, -height * HalfScale), MyMath::Vector3(radius, radius, height * HalfScale))
 {
     MYVOXEL_ASSERT_MESSAGE(isFinitePositive(radius), "Geometry_Cylinder radius must be finite and greater than zero.");
     MYVOXEL_ASSERT_MESSAGE(isFinitePositive(height), "Geometry_Cylinder height must be finite and greater than zero.");
@@ -82,10 +83,6 @@ ShapeKind Geometry_Cylinder::kind() const
     return ShapeKind::Cylinder;
 }
 
-Bounds3 Geometry_Cylinder::localBounds() const
-{
-    return m_bounds;
-}
 
 /// 标准空间查询
 

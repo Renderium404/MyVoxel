@@ -4,7 +4,6 @@
 
 #include "MyVoxel/Core/VoxelShapeSession.h"
 #include "MyVoxel/Foundation/Diagnostic.h"
-#include "MyVoxel/Operation/Algorithm/ShapeCutAlgorithm.h"
 #include "MyVoxel/Operation/Algorithm/VoxelForestBooleanAlgorithm.h"
 
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
@@ -644,88 +643,6 @@ bool BooleanOperation::exclusiveOrInPlace(VoxelShape& left, const VoxelShape& ri
                                           VoxelChangeSet* changes, BooleanOperationStatistics& statistics)
 {
     return applyInPlace(left, right, VoxelBooleanType::ExclusiveOr, changes, statistics);
-}
-
-#endif
-
-/// 连续几何差集
-
-VoxelShape BooleanOperation::subtract(const VoxelShape& object, const Geometry::ShapeInstance& tool,
-                                      VoxelChangeSet* changes)
-{
-    MYVOXEL_REQUIRE_MESSAGE(object.isValid(), "Shape subtraction requires a valid VoxelShape.");
-    MYVOXEL_REQUIRE_MESSAGE(tool.isValid(), "Shape subtraction requires a valid ShapeInstance.");
-
-    VoxelShape result = object;
-
-    if (!Algorithm::ShapeCutAlgorithm::apply(result, tool, changes))
-    {
-        return object;
-    }
-
-    return result;
-}
-
-bool BooleanOperation::subtractInPlace(VoxelShape& object, const Geometry::ShapeInstance& tool,
-                                       VoxelChangeSet* changes)
-{
-    MYVOXEL_REQUIRE_MESSAGE(object.isValid(), "Shape subtraction requires a valid VoxelShape.");
-    MYVOXEL_REQUIRE_MESSAGE(tool.isValid(), "Shape subtraction requires a valid ShapeInstance.");
-
-    if (!object.isDataShared())
-    {
-        return Algorithm::ShapeCutAlgorithm::apply(object, tool, changes);
-    }
-
-    VoxelShape result = object;
-    const bool changed = Algorithm::ShapeCutAlgorithm::apply(result, tool, changes);
-
-    if (changed)
-    {
-        object = result;
-    }
-
-    return changed;
-}
-
-#ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
-
-VoxelShape BooleanOperation::subtract(const VoxelShape& object, const Geometry::ShapeInstance& tool,
-                                      VoxelChangeSet* changes, Algorithm::ShapeCutStatistics& statistics)
-{
-    MYVOXEL_REQUIRE_MESSAGE(object.isValid(), "Shape subtraction requires a valid VoxelShape.");
-    MYVOXEL_REQUIRE_MESSAGE(tool.isValid(), "Shape subtraction requires a valid ShapeInstance.");
-
-    VoxelShape result = object;
-
-    if (!Algorithm::ShapeCutAlgorithm::apply(result, tool, changes, statistics))
-    {
-        return object;
-    }
-
-    return result;
-}
-
-bool BooleanOperation::subtractInPlace(VoxelShape& object, const Geometry::ShapeInstance& tool,
-                                       VoxelChangeSet* changes, Algorithm::ShapeCutStatistics& statistics)
-{
-    MYVOXEL_REQUIRE_MESSAGE(object.isValid(), "Shape subtraction requires a valid VoxelShape.");
-    MYVOXEL_REQUIRE_MESSAGE(tool.isValid(), "Shape subtraction requires a valid ShapeInstance.");
-
-    if (!object.isDataShared())
-    {
-        return Algorithm::ShapeCutAlgorithm::apply(object, tool, changes, statistics);
-    }
-
-    VoxelShape result = object;
-    const bool changed = Algorithm::ShapeCutAlgorithm::apply(result, tool, changes, statistics);
-
-    if (changed)
-    {
-        object = result;
-    }
-
-    return changed;
 }
 
 #endif

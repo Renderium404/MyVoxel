@@ -3,13 +3,16 @@
 
 #include <cstdint>
 #include <map>
-#include <vector>
 
 #include <QEvent>
 #include <QMutex>
+#include <QString>
 #include <QThread>
 #include <QWaitCondition>
 
+#include "MyVoxel/Display/Line/Display_LineSnapshot.h"
+#include "MyVoxel/Display/Mesh/Display_MeshSnapshot.h"
+#include "MyVoxel/Display/Mesh/Display_MeshUpdate.h"
 #include "VoxelRenderTypes.h"
 
 class QObject;
@@ -23,9 +26,9 @@ namespace MyVoxelViewer
 class RenderFrameReadyEvent : public QEvent
 {
 public:
-    RenderFrameReadyEvent(std::uint64_t frameId, unsigned int textureId, std::uint64_t frameVersion, const QSize& textureSize, const MeshUpdateStatistics& statistics);
+    RenderFrameReadyEvent(std::uint64_t frameId, unsigned int textureId, std::uint64_t frameVersion,
+                          const QSize& textureSize, const MeshUpdateStatistics& statistics);
 
-    // 返回后台完成帧事件类型。
     static QEvent::Type eventType();
 
     std::uint64_t frameId() const;
@@ -48,16 +51,14 @@ class RenderFailureEvent : public QEvent
 public:
     explicit RenderFailureEvent(const QString& message);
 
-    // 返回后台渲染失败事件类型。
     static QEvent::Type eventType();
-
     const QString& message() const;
 
 private:
     QString m_message; // 后台共享上下文或OpenGL资源初始化失败信息。
 };
 
-// 使用独立共享OpenGL上下文完成网格上传、场景绘制和双纹理发布。
+// 使用独立共享OpenGL上下文消费Mesh和Line Display命令并完成GPU同步和双纹理发布。
 class VoxelRenderThread : public QThread
 {
 public:
@@ -66,47 +67,33 @@ public:
 
     /// 生命周期
 
-    // 接收GUI线程创建的共享上下文和离屏表面，将上下文移动到当前线程并启动后台渲染。
     bool startRendering(QOpenGLContext* context, QOffscreenSurface* surface, QObject* frameReceiver, QThread* guiThread);
-
-    // 请求后台线程结束并等待全部OpenGL资源在共享上下文中释放。
     void stopRendering();
-
-    // 判断后台线程是否已经启动且尚未结束。
     bool isRendering() const;
 
-    /// 场景命令
+    /// Display场景命令
 
-    // 使用完整对象快照替换后台对象，连续提交同一对象时只保留最新完整状态。
-    void enqueueReplaceObject(MeshObjectSnapshot snapshot, double cacheMilliseconds = 0.0, double cpuCopyMilliseconds = 0.0);
-
-    // 合并指定对象的分片增量更新，同一分片只保留最后一次提交。
-    void enqueueUpdateParts(MeshObjectId objectId, std::vector<MeshPartSnapshot> parts, double cacheMilliseconds = 0.0, double cpuCopyMilliseconds = 0.0);
-
-    // 设置指定对象模型矩阵。
-    void enqueueSetObjectMatrix(MeshObjectId objectId, const QMatrix4x4& matrix);
-
-    // 设置指定对象可见状态。
-    void enqueueSetObjectVisible(MeshObjectId objectId, bool visible);
-
-    // 删除指定后台对象。
-    void enqueueRemoveObject(MeshObjectId objectId);
-
-    // 清空全部后台对象。
+    // 使用完整Mesh快照替换后台对象。
+    void enqueueReplaceObject(const MyVoxel::Display_MeshObjectSnapshot& snapshot,
+                              double cacheMilliseconds = 0.0, double cpuCopyMilliseconds = 0.0);
+    // 使用完整Line快照替换后台对象。
+    void enqueueReplaceObject(const MyVoxel::Display_LineObjectSnapshot& snapshot,
+                              double cacheMilliseconds = 0.0, double cpuCopyMilliseconds = 0.0);
+    // 合并一个Mesh对象的分片增量更新。
+    void enqueueUpdateParts(const MyVoxel::Display_MeshUpdate& update,
+                            double cacheMilliseconds = 0.0, double cpuCopyMilliseconds = 0.0);
+    // 合并一个Mesh对象的变换和可见状态更新。
+    void enqueueStateUpdate(const MyVoxel::Display_MeshStateUpdate& update);
+    // 删除指定后台Display对象，Mesh和Line共享同一对象ID空间。
+    void enqueueRemoveObject(std::uint64_t objectId);
+    // 清空全部后台Display对象。
     void enqueueClearObjects();
 
     /// 绘制状态
 
-    // 提交最新相机和视口状态，尚未处理的旧状态会被直接覆盖。
     void enqueueCameraState(const RenderCameraState& state);
-
-    // 提交最新线框状态。
     void enqueueWireframe(bool enabled);
-
-    // 请求使用当前最新场景状态生成一帧。
     void requestFrame();
-
-    // 通知后台线程GUI已经切换到指定共享纹理，使上一显示纹理可安全复用或释放。
     void acceptPresentedFrame(std::uint64_t frameId, std::uint64_t frameVersion);
 
 protected:
@@ -120,17 +107,26 @@ private:
         PendingRemove
     };
 
+    enum RenderObjectKind
+    {
+        RenderMeshObject,
+        RenderLineObject
+    };
+
     struct PendingObjectChange
     {
         PendingObjectChange();
 
         PendingObjectAction action; // 当前对象待执行的结构操作。
-        MeshObjectKind kind; // 完整替换时使用的对象类型。
+        RenderObjectKind kind; // 当前完整替换对象的显示资源类型。
+        bool dynamicUsage; // GPU缓冲是否按动态资源使用。
         QMatrix4x4 modelMatrix; // 最新对象模型矩阵。
         bool hasModelMatrix; // 是否提交了模型矩阵修改。
         bool visible; // 最新对象可见状态。
         bool hasVisible; // 是否提交了可见状态修改。
-        std::map<MeshPartIndex, MeshPartSnapshot> parts; // 完整替换或增量更新后的最终分片集合。
+        float lineWidth; // Line对象期望OpenGL线宽。
+        std::map<std::uint64_t, MyVoxel::Display_MeshPartUpdate> meshParts; // Mesh对象合并后的最终分片操作。
+        std::map<std::uint64_t, MyVoxel::Foundation::RefPtr<const MyVoxel::Display_LineResource> > lineParts; // Line完整替换使用的不可变分片资源。
     };
 
     struct PendingBatch
@@ -138,15 +134,15 @@ private:
         PendingBatch();
 
         bool clearObjects; // 是否先清空全部后台对象。
-        std::map<MeshObjectId, PendingObjectChange> objects; // 按对象合并后的最新场景修改。
+        std::map<std::uint64_t, PendingObjectChange> objects; // 按对象合并后的最新场景修改。
         bool hasCamera; // 是否包含新相机状态。
         RenderCameraState camera; // 最新相机和视口状态。
-        bool hasWireframe; // 是否包含新线框状态。
-        bool wireframe; // 最新线框状态。
+        bool hasWireframe; // 是否包含新Mesh线框状态。
+        bool wireframe; // 最新Mesh线框状态。
         bool requestFrame; // 是否需要在场景修改后生成新帧。
         double cacheMilliseconds; // 调用线程版本过滤和映射维护累计耗时。
-        double cpuCopyMilliseconds; // 调用线程CPU Mesh快照累计耗时。
-        std::size_t stagedCpuPartCount; // 调用线程生成的非空CPU Mesh快照数量。
+        double cpuCopyMilliseconds; // 调用线程不可变资源引用提交累计耗时。
+        std::size_t stagedCpuPartCount; // 当前批次提交的非空资源数量。
 
         bool isEmpty() const;
         void clear();
@@ -154,13 +150,8 @@ private:
 
     struct RenderState;
 
-    // 将共享命令队列移动到工作线程局部批次。
     PendingBatch takePendingBatch();
-
-    // 判断当前是否存在待处理命令或可立即执行的绘制请求。
     bool hasRunnableWorkLocked() const;
-
-    // 将后台失败信息投递到GUI线程。
     void postFailure(const QString& message) const;
 
 private:
@@ -176,7 +167,7 @@ private:
     std::uint64_t m_acceptedFrameId; // GUI最近确认显示的共享纹理资源标识。
     std::uint64_t m_acceptedFrameVersion; // GUI最近确认显示的后台帧版本。
 
-    QOpenGLContext* m_context; // 已与QOpenGLWidget上下文共享资源且属于后台线程的OpenGL上下文。
+    QOpenGLContext* m_context; // 与QOpenGLWidget共享资源且属于后台线程的OpenGL上下文。
     QOffscreenSurface* m_surface; // 在GUI线程创建并供后台上下文绑定的离屏表面。
     QObject* m_frameReceiver; // 接收后台完成帧和失败事件的GUI对象。
     QThread* m_guiThread; // 后台结束前接收OpenGL上下文所有权的GUI线程。

@@ -1,5 +1,5 @@
-#ifndef MYVOXEL_GEOMETRY_Geometry_Sphere_H
-#define MYVOXEL_GEOMETRY_Geometry_Sphere_H
+#ifndef MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_SPHERE_H
+#define MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_SPHERE_H
 
 #include "Geometry_Shape.h"
 
@@ -21,8 +21,6 @@ public:
     /// 几何属性
     // 返回标准球体类型。
     ShapeKind kind() const override;
-    // 返回球体局部轴对齐包围盒。
-    Bounds3 localBounds() const override;
 
     /// 空间查询
 
@@ -39,10 +37,9 @@ protected:
 private:
     double m_radius; // 球体半径。
     double m_radiusSquared; // 球体半径平方。
-    Bounds3 m_bounds; // 球体局部轴对齐包围盒。
 };
 
 
 }
 
-#endif // MYVOXEL_GEOMETRY_Geometry_Sphere_H
+#endif // MYVOXEL_GEOMETRY_SHAPE_GEOMETRY_SPHERE_H

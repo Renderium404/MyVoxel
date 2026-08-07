@@ -11,7 +11,8 @@
 #include "MyVoxel/Core/VoxelAddress.h"
 #include "MyVoxel/Core/VoxelGrid.h"
 #include "MyVoxel/Core/VoxelShape.h"
-#include "MyVoxel/Geometry/Mesh/Mesh.h"
+#include "MyVoxel/Display/Base/Display_Color.h"
+#include "MyVoxel/Mesh/Mesh.h"
 
 #include "VoxelFaceColorMap.h"
 #include "VoxelFaceExtractor.h"
@@ -136,7 +137,7 @@ class VoxelSurfaceCache
 {
 public:
     using RootIndexSet = VoxelChangeSet::RootIndexSet;
-    using DirectionMeshes = std::array<Geometry::Mesh, VoxelFaceDirectionCount>;
+    using DirectionMeshes = std::array<Mesh, VoxelFaceDirectionCount>;
     using DirectionMeshVersions = std::array<std::uint64_t, VoxelFaceDirectionCount>;
     using DirectionQuadCountHints = std::array<std::size_t, VoxelFaceDirectionCount>;
 
@@ -149,7 +150,7 @@ public:
         void invalidateCombinedMesh();
 
         // 按固定方向顺序返回兼容Root网格，仅在显式访问时组合并缓存。
-        const Geometry::Mesh& combinedMesh() const;
+        const Mesh& combinedMesh() const;
 
         VoxelRootFaceMasks faceMasks; // 当前根全部单位外表面的方向位平面核心表示。
         VoxelFaceColorMap colors; // 当前根中需要单独上色的单位面颜色。
@@ -159,7 +160,7 @@ public:
         DirectionQuadCountHints directionQuadCountHints; // 六个方向上一次成功构建的实际四边形数量。
 
     private:
-        mutable Geometry::Mesh m_combinedMesh; // 兼容rootMesh()按需生成的临时组合网格。
+        mutable Mesh m_combinedMesh; // 兼容rootMesh()按需生成的临时组合网格。
         mutable bool m_combinedMeshValid; // 兼容组合网格是否与六方向网格一致。
     };
 
@@ -173,19 +174,19 @@ public:
     void clear();
 
     // 根据完整体素形体重新建立缓存，并清除此前保存的全部单独面颜色。
-    void rebuild(const VoxelShape& shape, const Geometry::MeshColor& defaultColor);
+    void rebuild(const VoxelShape& shape, const Display_Color& defaultColor);
 
     // 根据修改Root的变化掩码叶块局部更新占用和面掩码，并将新增表面设置为newFaceColor。
     //
     // 全部受影响根网格成功构建后才提交新面集合和颜色。
     VoxelSurfaceCacheUpdate update(const VoxelShape& shape,
                                    const VoxelChangeSet& changes,
-                                   const Geometry::MeshColor& newFaceColor);
+                                   const Display_Color& newFaceColor);
 
     // 根据修改根增量更新缓存，并返回完整阶段统计。
     VoxelSurfaceCacheUpdate update(const VoxelShape& shape,
                                    const VoxelChangeSet& changes,
-                                   const Geometry::MeshColor& newFaceColor,
+                                   const Display_Color& newFaceColor,
                                    VoxelSurfaceUpdateStatistics* statistics);
 
     /// 颜色修改
@@ -195,7 +196,7 @@ public:
     // 全部受影响根网格成功构建后才提交新颜色。
     RootIndexSet setFaceColor(const VoxelShape& shape,
                               const VoxelFaceSet& faces,
-                              const Geometry::MeshColor& color);
+                              const Display_Color& color);
 
     // 删除指定面保存的单独颜色，并重新构建实际发生颜色变化的根网格。
     //
@@ -210,7 +211,7 @@ public:
     // 修改未单独上色表面的默认颜色，并重新构建全部根网格。
     //
     // 全部根网格成功构建后才提交新默认颜色。
-    RootIndexSet setDefaultColor(const VoxelShape& shape, const Geometry::MeshColor& color);
+    RootIndexSet setDefaultColor(const VoxelShape& shape, const Display_Color& color);
 
     /// 缓存状态
 
@@ -233,7 +234,7 @@ public:
     std::size_t triangleCount() const;
 
     // 返回当前默认表面颜色。
-    const Geometry::MeshColor& defaultColor() const;
+    const Display_Color& defaultColor() const;
 
     // 返回全部根表面的局部轴对齐包围盒，空缓存返回无效包围盒。
     const Bounds3& localBounds() const;
@@ -252,13 +253,13 @@ public:
     // 返回指定根按固定方向顺序组合的兼容网格，不存在时返回空指针。
     //
     // 该接口会按需组合六方向网格，不应在增量显示热路径中调用。
-    const Geometry::Mesh* rootMesh(const VoxelCellIndex& rootIndex) const;
+    const Mesh* rootMesh(const VoxelCellIndex& rootIndex) const;
 
     // 返回指定根的六方向独立网格，不存在时返回空指针。
     const DirectionMeshes* rootDirectionMeshes(const VoxelCellIndex& rootIndex) const;
 
     // 返回指定根、指定方向的独立网格，不存在时返回空指针。
-    const Geometry::Mesh* rootDirectionMesh(const VoxelCellIndex& rootIndex,
+    const Mesh* rootDirectionMesh(const VoxelCellIndex& rootIndex,
                                             VoxelFaceDirection direction) const;
 
     // 返回指定根、指定方向的网格版本，不存在时返回0。
@@ -280,7 +281,7 @@ public:
     VoxelFaceSet combinedFaces() const;
 
     // 将全部根网格按根索引顺序组合为一个完整网格。
-    Geometry::Mesh combinedMesh() const;
+    Mesh combinedMesh() const;
 
 private:
     // 检查指定形体的体素网格是否与当前缓存来源完全一致。
@@ -301,7 +302,7 @@ private:
 private:
     bool m_initialized; // 当前缓存是否已经通过rebuild完整建立。
     VoxelGrid m_grid; // 当前缓存对应的体素网格。
-    Geometry::MeshColor m_defaultColor; // 未单独上色表面的默认颜色。
+    Display_Color m_defaultColor; // 未单独上色表面的默认颜色。
     VoxelRootOccupancyMap m_occupancies; // 全部实际Root展开到最高层后的核心材料占用缓存，包括无外表面的内部Root。
     RootEntryMap m_roots; // 第0层根索引与根级面掩码、颜色和六方向网格缓存项。
     mutable VoxelFaceColorMap m_combinedFaceColors; // 按需组合的全部根单独面颜色只读视图。

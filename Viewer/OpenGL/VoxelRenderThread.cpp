@@ -25,10 +25,18 @@ namespace
 
 const float Pi = 3.14159265358979323846f; // 角度与弧度转换使用的圆周率。
 const float MinimumRadius = 0.001f; // 空场景和极小场景使用的最小包围球半径。
-const std::size_t OpenGLVertexFloatCount = 10; // 每个展开顶点包含位置3、法线3和颜色4个float。
-const int OpenGLPositionFloatOffset = 0; // 展开顶点中位置属性的float偏移。
-const int OpenGLNormalFloatOffset = 3; // 展开顶点中法线属性的float偏移。
-const int OpenGLColorFloatOffset = 6; // 展开顶点中颜色属性的float偏移。
+const std::size_t MeshVertexFloatCount = 10; // Mesh顶点包含位置3、法线3和颜色4个float。
+const int MeshPositionFloatOffset = 0; // Mesh顶点位置属性float偏移。
+const int MeshNormalFloatOffset = 3; // Mesh顶点法线属性float偏移。
+const int MeshColorFloatOffset = 6; // Mesh顶点颜色属性float偏移。
+const std::size_t LineVertexFloatCount = 7; // Line顶点包含位置3和颜色4个float。
+const int LinePositionFloatOffset = 0; // Line顶点位置属性float偏移。
+const int LineColorFloatOffset = 3; // Line顶点颜色属性float偏移。
+
+static_assert(sizeof(MyVoxel::Display_MeshVertex) == MeshVertexFloatCount * sizeof(float),
+              "Display_MeshVertex must contain exactly ten consecutive float values.");
+static_assert(sizeof(MyVoxel::Display_LineVertex) == LineVertexFloatCount * sizeof(float),
+              "Display_LineVertex must contain exactly seven consecutive float values.");
 
 typedef std::chrono::steady_clock RenderClock;
 
@@ -59,44 +67,13 @@ QVector3D cameraDirection(const MyVoxelViewer::RenderCameraState& camera)
     return QVector3D(std::cos(yaw) * std::cos(pitch), std::sin(yaw) * std::cos(pitch), std::sin(pitch)).normalized();
 }
 
-// 将三角形颜色网格展开到可复用的OpenGL逐顶点float数组。
-void buildOpenGLVertexData(const MyVoxel::Geometry::Mesh& mesh, std::vector<float>& vertexData)
-{
-    assert(mesh.isValid());
-    vertexData.resize(mesh.indexCount() * OpenGLVertexFloatCount);
-    std::size_t outputOffset = 0;
-
-    for (std::size_t triangleIndex = 0; triangleIndex < mesh.triangleCount(); ++triangleIndex)
-    {
-        const MyVoxel::Geometry::MeshColor& color = mesh.triangleColor(triangleIndex);
-        const std::size_t firstIndexPosition = triangleIndex * 3;
-
-        for (unsigned int corner = 0; corner < 3; ++corner)
-        {
-            const std::uint32_t sourceIndex = mesh.indices()[firstIndexPosition + corner];
-            const MyVoxel::Geometry::MeshVertex& sourceVertex = mesh.vertices()[sourceIndex];
-            vertexData[outputOffset++] = sourceVertex.x;
-            vertexData[outputOffset++] = sourceVertex.y;
-            vertexData[outputOffset++] = sourceVertex.z;
-            vertexData[outputOffset++] = sourceVertex.normalX;
-            vertexData[outputOffset++] = sourceVertex.normalY;
-            vertexData[outputOffset++] = sourceVertex.normalZ;
-            vertexData[outputOffset++] = color.red;
-            vertexData[outputOffset++] = color.green;
-            vertexData[outputOffset++] = color.blue;
-            vertexData[outputOffset++] = color.alpha;
-        }
-    }
-
-    assert(outputOffset == vertexData.size());
-}
-
 }
 
 namespace MyVoxelViewer
 {
 
-RenderFrameReadyEvent::RenderFrameReadyEvent(std::uint64_t frameId, unsigned int textureId, std::uint64_t frameVersion, const QSize& textureSize, const MeshUpdateStatistics& statistics)
+RenderFrameReadyEvent::RenderFrameReadyEvent(std::uint64_t frameId, unsigned int textureId, std::uint64_t frameVersion,
+                                             const QSize& textureSize, const MeshUpdateStatistics& statistics)
     : QEvent(eventType())
     , m_frameId(frameId)
     , m_textureId(textureId)
@@ -112,30 +89,11 @@ QEvent::Type RenderFrameReadyEvent::eventType()
     return static_cast<QEvent::Type>(type);
 }
 
-std::uint64_t RenderFrameReadyEvent::frameId() const
-{
-    return m_frameId;
-}
-
-unsigned int RenderFrameReadyEvent::textureId() const
-{
-    return m_textureId;
-}
-
-std::uint64_t RenderFrameReadyEvent::frameVersion() const
-{
-    return m_frameVersion;
-}
-
-const QSize& RenderFrameReadyEvent::textureSize() const
-{
-    return m_textureSize;
-}
-
-const MeshUpdateStatistics& RenderFrameReadyEvent::statistics() const
-{
-    return m_statistics;
-}
+std::uint64_t RenderFrameReadyEvent::frameId() const { return m_frameId; }
+unsigned int RenderFrameReadyEvent::textureId() const { return m_textureId; }
+std::uint64_t RenderFrameReadyEvent::frameVersion() const { return m_frameVersion; }
+const QSize& RenderFrameReadyEvent::textureSize() const { return m_textureSize; }
+const MeshUpdateStatistics& RenderFrameReadyEvent::statistics() const { return m_statistics; }
 
 RenderFailureEvent::RenderFailureEvent(const QString& message)
     : QEvent(eventType())
@@ -149,17 +107,16 @@ QEvent::Type RenderFailureEvent::eventType()
     return static_cast<QEvent::Type>(type);
 }
 
-const QString& RenderFailureEvent::message() const
-{
-    return m_message;
-}
+const QString& RenderFailureEvent::message() const { return m_message; }
 
 VoxelRenderThread::PendingObjectChange::PendingObjectChange()
     : action(PendingNone)
-    , kind(MeshObjectKind::Mesh)
+    , kind(RenderMeshObject)
+    , dynamicUsage(false)
     , hasModelMatrix(false)
     , visible(true)
     , hasVisible(false)
+    , lineWidth(1.0f)
 {
     modelMatrix.setToIdentity();
 }
@@ -178,7 +135,8 @@ VoxelRenderThread::PendingBatch::PendingBatch()
 
 bool VoxelRenderThread::PendingBatch::isEmpty() const
 {
-    return !clearObjects && objects.empty() && !hasCamera && !hasWireframe && !requestFrame && cacheMilliseconds == 0.0 && cpuCopyMilliseconds == 0.0 && stagedCpuPartCount == 0;
+    return !clearObjects && objects.empty() && !hasCamera && !hasWireframe && !requestFrame &&
+           cacheMilliseconds == 0.0 && cpuCopyMilliseconds == 0.0 && stagedCpuPartCount == 0;
 }
 
 void VoxelRenderThread::PendingBatch::clear()
@@ -195,35 +153,42 @@ void VoxelRenderThread::PendingBatch::clear()
 
 struct VoxelRenderThread::RenderState
 {
-    struct RenderMesh
+    struct RenderPart
     {
-        RenderMesh()
+        RenderPart()
             : vertexBuffer(QOpenGLBuffer::VertexBuffer)
             , vertexCount(0)
             , triangleCount(0)
+            , segmentCount(0)
         {
         }
 
         QOpenGLVertexArrayObject vertexArray; // 当前分片顶点属性状态。
-        QOpenGLBuffer vertexBuffer; // 当前分片展开后的三角形顶点数据。
+        QOpenGLBuffer vertexBuffer; // 当前分片连续顶点数据。
         int vertexCount; // 当前分片需要绘制的OpenGL顶点数量。
-        std::size_t triangleCount; // 当前分片包含的三角形数量。
+        std::size_t triangleCount; // Mesh分片包含的三角形数量。
+        std::size_t segmentCount; // Line分片包含的独立线段数量。
     };
 
     struct RenderObject
     {
-        typedef std::map<MeshPartIndex, RenderMesh*> PartMap;
+        typedef std::map<std::uint64_t, RenderPart*> PartMap;
+
         RenderObject()
-            : kind(MeshObjectKind::Mesh)
+            : kind(RenderMeshObject)
+            , dynamicUsage(false)
             , visible(true)
+            , lineWidth(1.0f)
         {
             modelMatrix.setToIdentity();
         }
 
-        MeshObjectKind kind;        // 普通网格对象或体素网格对象。
-        QMatrix4x4 modelMatrix;     // 对象局部空间到显示世界空间的模型矩阵。
-        bool visible;               // 对象是否参与后台绘制。
-        PartMap parts;              // 当前对象全部GPU网格分片。
+        RenderObjectKind kind; // 当前对象是Mesh还是Line。
+        bool dynamicUsage; // 当前对象GPU缓冲是否使用DynamicDraw。
+        QMatrix4x4 modelMatrix; // 对象局部空间到显示世界空间的模型矩阵。
+        bool visible; // 对象是否参与后台绘制。
+        float lineWidth; // Line对象期望OpenGL线宽。
+        PartMap parts; // 当前对象全部GPU分片。
     };
 
     struct FrameResource
@@ -239,17 +204,17 @@ struct VoxelRenderThread::RenderState
         {
         }
 
-        std::uint64_t id; // 当前共享纹理资源全局唯一标识。
-        QSize size; // 当前颜色纹理和深度缓冲尺寸。
-        unsigned int framebuffer; // 后台上下文专用FBO对象。
-        unsigned int colorTexture; // GUI上下文可共享采样的二维颜色纹理。
-        unsigned int depthStencilBuffer; // 后台上下文专用深度模板Renderbuffer。
-        bool ready; // 是否已完成绘制并等待GUI确认。
-        bool displayed; // 是否为GUI最近确认显示的纹理。
-        bool retired; // 是否因视口尺寸变化等待安全释放。
+        std::uint64_t id;
+        QSize size;
+        unsigned int framebuffer;
+        unsigned int colorTexture;
+        unsigned int depthStencilBuffer;
+        bool ready;
+        bool displayed;
+        bool retired;
     };
 
-    typedef std::map<MeshObjectId, RenderObject*> ObjectMap;
+    typedef std::map<std::uint64_t, RenderObject*> ObjectMap;
     typedef std::map<std::uint64_t, FrameResource> FrameMap;
 
     RenderState()
@@ -322,6 +287,7 @@ struct VoxelRenderThread::RenderState
 
         backgroundProgram.removeAllShaders();
         meshProgram.removeAllShaders();
+        lineProgram.removeAllShaders();
         initialized = false;
     }
 
@@ -405,15 +371,48 @@ struct VoxelRenderThread::RenderState
             "    fragColor = vec4(displayColor, v_color.a);\n"
             "}\n";
 
-        if (!backgroundProgram.addShaderFromSourceCode(QOpenGLShader::Vertex, backgroundVertexShader) || !backgroundProgram.addShaderFromSourceCode(QOpenGLShader::Fragment, backgroundFragmentShader) || !backgroundProgram.link())
+        const char* lineVertexShader =
+            "#version 330 core\n"
+            "layout(location = 0) in vec3 a_position;\n"
+            "layout(location = 1) in vec4 a_color;\n"
+            "uniform mat4 u_mvp;\n"
+            "out vec4 v_color;\n"
+            "void main()\n"
+            "{\n"
+            "    gl_Position = u_mvp * vec4(a_position, 1.0);\n"
+            "    v_color = a_color;\n"
+            "}\n";
+
+        const char* lineFragmentShader =
+            "#version 330 core\n"
+            "in vec4 v_color;\n"
+            "out vec4 fragColor;\n"
+            "void main()\n"
+            "{\n"
+            "    fragColor = v_color;\n"
+            "}\n";
+
+        if (!backgroundProgram.addShaderFromSourceCode(QOpenGLShader::Vertex, backgroundVertexShader) ||
+            !backgroundProgram.addShaderFromSourceCode(QOpenGLShader::Fragment, backgroundFragmentShader) ||
+            !backgroundProgram.link())
         {
             errorMessage = QStringLiteral("Background shader initialization failed: ") + backgroundProgram.log();
             return false;
         }
 
-        if (!meshProgram.addShaderFromSourceCode(QOpenGLShader::Vertex, meshVertexShader) || !meshProgram.addShaderFromSourceCode(QOpenGLShader::Fragment, meshFragmentShader) || !meshProgram.link())
+        if (!meshProgram.addShaderFromSourceCode(QOpenGLShader::Vertex, meshVertexShader) ||
+            !meshProgram.addShaderFromSourceCode(QOpenGLShader::Fragment, meshFragmentShader) ||
+            !meshProgram.link())
         {
             errorMessage = QStringLiteral("Mesh shader initialization failed: ") + meshProgram.log();
+            return false;
+        }
+
+        if (!lineProgram.addShaderFromSourceCode(QOpenGLShader::Vertex, lineVertexShader) ||
+            !lineProgram.addShaderFromSourceCode(QOpenGLShader::Fragment, lineFragmentShader) ||
+            !lineProgram.link())
+        {
+            errorMessage = QStringLiteral("Line shader initialization failed: ") + lineProgram.log();
             return false;
         }
 
@@ -431,7 +430,8 @@ struct VoxelRenderThread::RenderState
             clearObjects(&statistics);
         }
 
-        for (std::map<MeshObjectId, PendingObjectChange>::const_iterator iterator = batch.objects.begin(); iterator != batch.objects.end(); ++iterator)
+        for (std::map<std::uint64_t, PendingObjectChange>::const_iterator iterator = batch.objects.begin();
+             iterator != batch.objects.end(); ++iterator)
         {
             applyObjectChange(iterator->first, iterator->second, statistics);
         }
@@ -446,10 +446,9 @@ struct VoxelRenderThread::RenderState
         {
             wireframe = batch.wireframe;
         }
-
     }
 
-    void applyObjectChange(MeshObjectId objectId, const PendingObjectChange& change, MeshUpdateStatistics& statistics)
+    void applyObjectChange(std::uint64_t objectId, const PendingObjectChange& change, MeshUpdateStatistics& statistics)
     {
         ObjectMap::iterator objectIterator = objects.find(objectId);
 
@@ -476,8 +475,10 @@ struct VoxelRenderThread::RenderState
 
             RenderObject* object = new RenderObject();
             object->kind = change.kind;
+            object->dynamicUsage = change.dynamicUsage;
             object->modelMatrix = change.modelMatrix;
             object->visible = change.visible;
+            object->lineWidth = change.lineWidth;
             const std::pair<ObjectMap::iterator, bool> inserted = objects.insert(std::make_pair(objectId, object));
 
             if (!inserted.second)
@@ -506,121 +507,191 @@ struct VoxelRenderThread::RenderState
             object.visible = change.visible;
         }
 
-        for (std::map<MeshPartIndex, MeshPartSnapshot>::const_iterator partIterator = change.parts.begin(); partIterator != change.parts.end(); ++partIterator)
+        if (object.kind == RenderMeshObject)
         {
-            if (partIterator->second.removed || partIterator->second.mesh.isEmpty())
+            for (std::map<std::uint64_t, MyVoxel::Display_MeshPartUpdate>::const_iterator iterator =
+                     change.meshParts.begin(); iterator != change.meshParts.end(); ++iterator)
             {
-                removePart(object, partIterator->first, &statistics);
-            }
-            else
-            {
-                uploadPart(object, partIterator->first, partIterator->second.mesh, statistics);
-            }
-        }
-    }
+                const MyVoxel::Display_MeshPartUpdate& part = iterator->second;
 
-    void uploadPart(RenderObject& object, const MeshPartIndex& partIndex, const MyVoxel::Geometry::Mesh& mesh, MeshUpdateStatistics& statistics)
-    {
-        assert(mesh.isValid());
-        assert(!mesh.isEmpty());
-
-        const RenderClock::time_point expansionStart = RenderClock::now();
-        buildOpenGLVertexData(mesh, uploadVertexData);
-        statistics.vertexExpansionMilliseconds += elapsedMilliseconds(expansionStart, RenderClock::now());
-
-        const RenderClock::time_point uploadStart = RenderClock::now();
-        RenderObject::PartMap::iterator iterator = object.parts.find(partIndex);
-        RenderMesh* renderMesh = nullptr;
-        bool created = false;
-
-        if (iterator == object.parts.end())
-        {
-            renderMesh = new RenderMesh();
-            created = true;
-
-            if (!renderMesh->vertexArray.create() || !renderMesh->vertexBuffer.create())
-            {
-                if (renderMesh->vertexBuffer.isCreated())
+                if (part.operation == MyVoxel::Display_MeshPartOperation::Remove)
                 {
-                    renderMesh->vertexBuffer.destroy();
+                    removePart(object, part.partId, &statistics);
                 }
-
-                if (renderMesh->vertexArray.isCreated())
+                else
                 {
-                    renderMesh->vertexArray.destroy();
+                    uploadMeshPart(object, part.partId, *part.resource, statistics);
                 }
-
-                delete renderMesh;
-                return;
             }
         }
         else
         {
-            renderMesh = iterator->second;
+            for (std::map<std::uint64_t, MyVoxel::Foundation::RefPtr<const MyVoxel::Display_LineResource> >::const_iterator iterator =
+                     change.lineParts.begin(); iterator != change.lineParts.end(); ++iterator)
+            {
+                uploadLinePart(object, iterator->first, *iterator->second, statistics);
+            }
+        }
+    }
+
+    RenderPart* createOrFindPart(RenderObject& object, std::uint64_t partId, bool& created)
+    {
+        RenderObject::PartMap::iterator iterator = object.parts.find(partId);
+
+        if (iterator != object.parts.end())
+        {
+            created = false;
+            return iterator->second;
         }
 
-        renderMesh->vertexArray.bind();
-        renderMesh->vertexBuffer.bind();
+        RenderPart* part = new RenderPart();
+        created = true;
+
+        if (!part->vertexArray.create() || !part->vertexBuffer.create())
+        {
+            if (part->vertexBuffer.isCreated()) part->vertexBuffer.destroy();
+            if (part->vertexArray.isCreated()) part->vertexArray.destroy();
+            delete part;
+            return nullptr;
+        }
+
+        return part;
+    }
+
+    bool commitCreatedPart(RenderObject& object, std::uint64_t partId, RenderPart* part, bool created,
+                           MeshUpdateStatistics& statistics)
+    {
+        if (!created)
+        {
+            ++statistics.reusedGpuPartCount;
+            return true;
+        }
+
+        const std::pair<RenderObject::PartMap::iterator, bool> inserted =
+            object.parts.insert(std::make_pair(partId, part));
+
+        if (!inserted.second)
+        {
+            if (part->vertexBuffer.isCreated()) part->vertexBuffer.destroy();
+            if (part->vertexArray.isCreated()) part->vertexArray.destroy();
+            delete part;
+            return false;
+        }
+
+        ++statistics.createdGpuPartCount;
+        return true;
+    }
+
+    void uploadMeshPart(RenderObject& object, std::uint64_t partId,
+                        const MyVoxel::Display_MeshResource& resource, MeshUpdateStatistics& statistics)
+    {
+        assert(resource.isValid() && resource.vertexCount() > 0);
+        const RenderClock::time_point uploadStart = RenderClock::now();
+        bool created = false;
+        RenderPart* part = createOrFindPart(object, partId, created);
+
+        if (!part)
+        {
+            return;
+        }
+
+        const std::vector<MyVoxel::Display_MeshVertex>& vertices = resource.vertices();
+        part->vertexArray.bind();
+        part->vertexBuffer.bind();
 
         if (created)
         {
-            renderMesh->vertexBuffer.setUsagePattern(object.kind == MeshObjectKind::MeshCache ? QOpenGLBuffer::DynamicDraw : QOpenGLBuffer::StaticDraw);
+            part->vertexBuffer.setUsagePattern(object.dynamicUsage ? QOpenGLBuffer::DynamicDraw : QOpenGLBuffer::StaticDraw);
         }
 
-        renderMesh->vertexBuffer.allocate(&uploadVertexData[0], checkedBufferByteSize(uploadVertexData.size() * sizeof(float)));
+        part->vertexBuffer.allocate(&vertices[0], checkedBufferByteSize(resource.memoryByteSize()));
 
         if (created)
         {
             meshProgram.bind();
             meshProgram.enableAttributeArray(0);
-            meshProgram.setAttributeBuffer(0, GL_FLOAT, OpenGLPositionFloatOffset * static_cast<int>(sizeof(float)), 3, OpenGLVertexFloatCount * static_cast<int>(sizeof(float)));
+            meshProgram.setAttributeBuffer(0, GL_FLOAT, MeshPositionFloatOffset * static_cast<int>(sizeof(float)), 3,
+                                           MeshVertexFloatCount * static_cast<int>(sizeof(float)));
             meshProgram.enableAttributeArray(1);
-            meshProgram.setAttributeBuffer(1, GL_FLOAT, OpenGLNormalFloatOffset * static_cast<int>(sizeof(float)), 3, OpenGLVertexFloatCount * static_cast<int>(sizeof(float)));
+            meshProgram.setAttributeBuffer(1, GL_FLOAT, MeshNormalFloatOffset * static_cast<int>(sizeof(float)), 3,
+                                           MeshVertexFloatCount * static_cast<int>(sizeof(float)));
             meshProgram.enableAttributeArray(2);
-            meshProgram.setAttributeBuffer(2, GL_FLOAT, OpenGLColorFloatOffset * static_cast<int>(sizeof(float)), 4, OpenGLVertexFloatCount * static_cast<int>(sizeof(float)));
+            meshProgram.setAttributeBuffer(2, GL_FLOAT, MeshColorFloatOffset * static_cast<int>(sizeof(float)), 4,
+                                           MeshVertexFloatCount * static_cast<int>(sizeof(float)));
             meshProgram.release();
         }
 
-        renderMesh->vertexBuffer.release();
-        renderMesh->vertexArray.release();
-        assert(mesh.indexCount() <= static_cast<std::size_t>((std::numeric_limits<int>::max)()));
-        renderMesh->vertexCount = static_cast<int>(mesh.indexCount());
-        renderMesh->triangleCount = mesh.triangleCount();
+        part->vertexBuffer.release();
+        part->vertexArray.release();
+        assert(resource.vertexCount() <= static_cast<std::size_t>((std::numeric_limits<int>::max)()));
+        part->vertexCount = static_cast<int>(resource.vertexCount());
+        part->triangleCount = resource.triangleCount();
+        part->segmentCount = 0;
 
-        if (created)
+        if (!commitCreatedPart(object, partId, part, created, statistics))
         {
-            const std::pair<RenderObject::PartMap::iterator, bool> inserted = object.parts.insert(std::make_pair(partIndex, renderMesh));
-
-            if (!inserted.second)
-            {
-                if (renderMesh->vertexBuffer.isCreated())
-                {
-                    renderMesh->vertexBuffer.destroy();
-                }
-
-                if (renderMesh->vertexArray.isCreated())
-                {
-                    renderMesh->vertexArray.destroy();
-                }
-
-                delete renderMesh;
-                return;
-            }
-
-            ++statistics.createdGpuPartCount;
-        }
-        else
-        {
-            ++statistics.reusedGpuPartCount;
+            return;
         }
 
         statistics.gpuUploadMilliseconds += elapsedMilliseconds(uploadStart, RenderClock::now());
         ++statistics.uploadedPartCount;
     }
 
-    void removePart(RenderObject& object, const MeshPartIndex& partIndex, MeshUpdateStatistics* statistics)
+    void uploadLinePart(RenderObject& object, std::uint64_t partId,
+                        const MyVoxel::Display_LineResource& resource, MeshUpdateStatistics& statistics)
     {
-        RenderObject::PartMap::iterator iterator = object.parts.find(partIndex);
+        assert(resource.isValid() && resource.vertexCount() > 0);
+        const RenderClock::time_point uploadStart = RenderClock::now();
+        bool created = false;
+        RenderPart* part = createOrFindPart(object, partId, created);
+
+        if (!part)
+        {
+            return;
+        }
+
+        const std::vector<MyVoxel::Display_LineVertex>& vertices = resource.vertices();
+        part->vertexArray.bind();
+        part->vertexBuffer.bind();
+
+        if (created)
+        {
+            part->vertexBuffer.setUsagePattern(object.dynamicUsage ? QOpenGLBuffer::DynamicDraw : QOpenGLBuffer::StaticDraw);
+        }
+
+        part->vertexBuffer.allocate(&vertices[0], checkedBufferByteSize(resource.memoryByteSize()));
+
+        if (created)
+        {
+            lineProgram.bind();
+            lineProgram.enableAttributeArray(0);
+            lineProgram.setAttributeBuffer(0, GL_FLOAT, LinePositionFloatOffset * static_cast<int>(sizeof(float)), 3,
+                                           LineVertexFloatCount * static_cast<int>(sizeof(float)));
+            lineProgram.enableAttributeArray(1);
+            lineProgram.setAttributeBuffer(1, GL_FLOAT, LineColorFloatOffset * static_cast<int>(sizeof(float)), 4,
+                                           LineVertexFloatCount * static_cast<int>(sizeof(float)));
+            lineProgram.release();
+        }
+
+        part->vertexBuffer.release();
+        part->vertexArray.release();
+        assert(resource.vertexCount() <= static_cast<std::size_t>((std::numeric_limits<int>::max)()));
+        part->vertexCount = static_cast<int>(resource.vertexCount());
+        part->triangleCount = 0;
+        part->segmentCount = resource.segmentCount();
+
+        if (!commitCreatedPart(object, partId, part, created, statistics))
+        {
+            return;
+        }
+
+        statistics.gpuUploadMilliseconds += elapsedMilliseconds(uploadStart, RenderClock::now());
+        ++statistics.uploadedPartCount;
+    }
+
+    void removePart(RenderObject& object, std::uint64_t partId, MeshUpdateStatistics* statistics)
+    {
+        RenderObject::PartMap::iterator iterator = object.parts.find(partId);
 
         if (iterator == object.parts.end())
         {
@@ -628,17 +699,8 @@ struct VoxelRenderThread::RenderState
         }
 
         const RenderClock::time_point removalStart = RenderClock::now();
-
-        if (iterator->second->vertexBuffer.isCreated())
-        {
-            iterator->second->vertexBuffer.destroy();
-        }
-
-        if (iterator->second->vertexArray.isCreated())
-        {
-            iterator->second->vertexArray.destroy();
-        }
-
+        if (iterator->second->vertexBuffer.isCreated()) iterator->second->vertexBuffer.destroy();
+        if (iterator->second->vertexArray.isCreated()) iterator->second->vertexArray.destroy();
         delete iterator->second;
         object.parts.erase(iterator);
 
@@ -791,7 +853,8 @@ struct VoxelRenderThread::RenderState
         return nullptr;
     }
 
-    bool renderFrame(MeshUpdateStatistics& statistics, std::uint64_t& frameId, unsigned int& textureId, std::uint64_t& frameVersion, QSize& textureSize)
+    bool renderFrame(MeshUpdateStatistics& statistics, std::uint64_t& frameId, unsigned int& textureId,
+                     std::uint64_t& frameVersion, QSize& textureSize)
     {
         ensureFramePool(camera.viewportSize);
         FrameResource* frame = freeCurrentFrame();
@@ -810,7 +873,9 @@ struct VoxelRenderThread::RenderState
         functions->glBindFramebuffer(GL_FRAMEBUFFER, 0);
         functions->glFinish(); // GPU等待仅发生在后台线程，确保GUI收到事件后可直接无阻塞采样共享纹理。
         statistics.renderMilliseconds += elapsedMilliseconds(renderStart, RenderClock::now());
-        statistics.totalMilliseconds = statistics.cacheAndVersionMilliseconds + statistics.cpuStagingCopyMilliseconds + statistics.contextAcquireMilliseconds + statistics.vertexExpansionMilliseconds + statistics.gpuUploadMilliseconds + statistics.gpuRemovalMilliseconds + statistics.contextReleaseMilliseconds + statistics.renderMilliseconds;
+        statistics.totalMilliseconds = statistics.cacheAndVersionMilliseconds + statistics.cpuStagingCopyMilliseconds +
+            statistics.contextAcquireMilliseconds + statistics.vertexExpansionMilliseconds + statistics.gpuUploadMilliseconds +
+            statistics.gpuRemovalMilliseconds + statistics.contextReleaseMilliseconds + statistics.renderMilliseconds;
         statistics.frameVersion = nextFrameVersion++;
 
         frame->ready = true;
@@ -873,7 +938,8 @@ struct VoxelRenderThread::RenderState
         const float radius = (std::max)(camera.radius, MinimumRadius);
         const float cameraDistance = (std::max)(radius * camera.cameraScale, 0.1f);
         const QVector3D eye = viewCenter + cameraDirection(camera) * cameraDistance;
-        const float aspect = camera.viewportSize.height() > 0 ? static_cast<float>(camera.viewportSize.width()) / static_cast<float>(camera.viewportSize.height()) : 1.0f;
+        const float aspect = camera.viewportSize.height() > 0
+            ? static_cast<float>(camera.viewportSize.width()) / static_cast<float>(camera.viewportSize.height()) : 1.0f;
         const float nearPlane = (std::max)(0.001f, cameraDistance - radius * 1.75f);
         const float farPlane = (std::max)(nearPlane + 1.0f, cameraDistance + radius * 3.50f);
 
@@ -890,7 +956,7 @@ struct VoxelRenderThread::RenderState
         {
             const RenderObject& object = *objectIterator->second;
 
-            if (!object.visible || object.parts.empty())
+            if (object.kind != RenderMeshObject || !object.visible || object.parts.empty())
             {
                 continue;
             }
@@ -912,24 +978,52 @@ struct VoxelRenderThread::RenderState
 
         functions->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
         meshProgram.release();
+
+        lineProgram.bind();
+
+        for (ObjectMap::const_iterator objectIterator = objects.begin(); objectIterator != objects.end(); ++objectIterator)
+        {
+            const RenderObject& object = *objectIterator->second;
+
+            if (object.kind != RenderLineObject || !object.visible || object.parts.empty())
+            {
+                continue;
+            }
+
+            lineProgram.setUniformValue("u_mvp", projection * view * object.modelMatrix);
+            functions->glLineWidth(object.lineWidth);
+
+            for (RenderObject::PartMap::const_iterator partIterator = object.parts.begin(); partIterator != object.parts.end(); ++partIterator)
+            {
+                partIterator->second->vertexArray.bind();
+                functions->glDrawArrays(GL_LINES, 0, partIterator->second->vertexCount);
+                partIterator->second->vertexArray.release();
+                ++statistics.drawCallCount;
+                ++statistics.lineDrawCallCount;
+                statistics.lineSegmentCount += partIterator->second->segmentCount;
+            }
+        }
+
+        functions->glLineWidth(1.0f);
+        lineProgram.release();
     }
 
-    QOpenGLFunctions_3_3_Core* functions; // 后台共享上下文的OpenGL 3.3 Core函数表。
-    bool initialized; // Shader、VAO和后台场景资源是否已经初始化。
-    bool wireframe; // 是否使用线框模式绘制全部后台对象。
-    RenderCameraState camera; // 当前最新相机和视口状态。
-    QOpenGLShaderProgram backgroundProgram; // 后台渐变背景Shader。
-    QOpenGLShaderProgram meshProgram; // 后台网格表面光照Shader。
-    QOpenGLVertexArrayObject backgroundVao; // Core Profile背景绘制使用的空VAO。
-    ObjectMap objects; // 后台对象标识到独立GPU对象的映射。
-    std::vector<float> uploadVertexData; // 网格展开时复用的连续CPU上传缓冲。
-    FrameMap frames; // 全部当前或等待安全释放的共享纹理帧资源。
-    std::vector<std::uint64_t> currentFrameIds; // 当前视口尺寸对应的两个可交换帧资源。
-    QSize currentFrameSize; // 当前后台FBO池尺寸。
-    std::uint64_t nextFrameId; // 下一个共享纹理资源标识。
-    std::uint64_t nextFrameVersion; // 下一个后台完成帧版本。
-    std::uint64_t readyFrameId; // 当前等待GUI确认的纹理资源。
-    std::uint64_t displayedFrameId; // GUI最近确认显示的纹理资源。
+    QOpenGLFunctions_3_3_Core* functions;
+    bool initialized;
+    bool wireframe;
+    RenderCameraState camera;
+    QOpenGLShaderProgram backgroundProgram;
+    QOpenGLShaderProgram meshProgram;
+    QOpenGLShaderProgram lineProgram;
+    QOpenGLVertexArrayObject backgroundVao;
+    ObjectMap objects;
+    FrameMap frames;
+    std::vector<std::uint64_t> currentFrameIds;
+    QSize currentFrameSize;
+    std::uint64_t nextFrameId;
+    std::uint64_t nextFrameVersion;
+    std::uint64_t readyFrameId;
+    std::uint64_t displayedFrameId;
 };
 
 VoxelRenderThread::VoxelRenderThread(QObject* parent)
@@ -954,7 +1048,8 @@ VoxelRenderThread::~VoxelRenderThread()
     stopRendering();
 }
 
-bool VoxelRenderThread::startRendering(QOpenGLContext* context, QOffscreenSurface* surface, QObject* frameReceiver, QThread* guiThread)
+bool VoxelRenderThread::startRendering(QOpenGLContext* context, QOffscreenSurface* surface,
+                                       QObject* frameReceiver, QThread* guiThread)
 {
     QMutexLocker locker(&m_mutex);
 
@@ -1006,26 +1101,27 @@ bool VoxelRenderThread::isRendering() const
     return m_started && !m_stopRequested;
 }
 
-void VoxelRenderThread::enqueueReplaceObject(MeshObjectSnapshot snapshot, double cacheMilliseconds, double cpuCopyMilliseconds)
+void VoxelRenderThread::enqueueReplaceObject(const MyVoxel::Display_MeshObjectSnapshot& snapshot,
+                                             double cacheMilliseconds, double cpuCopyMilliseconds)
 {
+    assert(snapshot.isValid());
     QMutexLocker locker(&m_mutex);
     PendingObjectChange& change = m_pending.objects[snapshot.objectId];
     change = PendingObjectChange();
     change.action = PendingReplace;
-    change.kind = snapshot.kind;
-    change.modelMatrix = snapshot.modelMatrix;
+    change.kind = RenderMeshObject;
+    change.dynamicUsage = snapshot.usage == MyVoxel::Display_MeshUsage::Dynamic;
+    change.modelMatrix = toQMatrix4x4(snapshot.localToWorld);
     change.hasModelMatrix = true;
     change.visible = snapshot.visible;
     change.hasVisible = true;
 
     for (std::size_t index = 0; index < snapshot.parts.size(); ++index)
     {
-        if (!snapshot.parts[index].removed && !snapshot.parts[index].mesh.isEmpty())
-        {
-            ++m_pending.stagedCpuPartCount;
-        }
-
-        change.parts[snapshot.parts[index].partIndex] = std::move(snapshot.parts[index]);
+        const MyVoxel::Display_MeshPartSnapshot& part = snapshot.parts[index];
+        change.meshParts[part.partId] =
+            MyVoxel::Display_MeshPartUpdate::replacement(part.partId, part.version, part.resource);
+        ++m_pending.stagedCpuPartCount;
     }
 
     m_pending.cacheMilliseconds += cacheMilliseconds;
@@ -1034,65 +1130,90 @@ void VoxelRenderThread::enqueueReplaceObject(MeshObjectSnapshot snapshot, double
     m_waitCondition.wakeOne();
 }
 
-void VoxelRenderThread::enqueueUpdateParts(MeshObjectId objectId, std::vector<MeshPartSnapshot> parts, double cacheMilliseconds, double cpuCopyMilliseconds)
+void VoxelRenderThread::enqueueReplaceObject(const MyVoxel::Display_LineObjectSnapshot& snapshot,
+                                             double cacheMilliseconds, double cpuCopyMilliseconds)
 {
+    assert(snapshot.isValid());
     QMutexLocker locker(&m_mutex);
-    PendingObjectChange& change = m_pending.objects[objectId];
-
-    if (change.action == PendingRemove)
-    {
-        return;
-    }
-
-    for (std::size_t index = 0; index < parts.size(); ++index)
-    {
-        if (!parts[index].removed && !parts[index].mesh.isEmpty())
-        {
-            ++m_pending.stagedCpuPartCount;
-        }
-
-        change.parts[parts[index].partIndex] = std::move(parts[index]);
-    }
-
-    m_pending.cacheMilliseconds += cacheMilliseconds;
-    m_pending.cpuCopyMilliseconds += cpuCopyMilliseconds;
-    m_pending.requestFrame = true;
-    m_waitCondition.wakeOne();
-}
-
-void VoxelRenderThread::enqueueSetObjectMatrix(MeshObjectId objectId, const QMatrix4x4& matrix)
-{
-    QMutexLocker locker(&m_mutex);
-    PendingObjectChange& change = m_pending.objects[objectId];
-
-    if (change.action == PendingRemove)
-    {
-        return;
-    }
-
-    change.modelMatrix = matrix;
+    PendingObjectChange& change = m_pending.objects[snapshot.objectId];
+    change = PendingObjectChange();
+    change.action = PendingReplace;
+    change.kind = RenderLineObject;
+    change.dynamicUsage = snapshot.usage == MyVoxel::Display_LineUsage::Dynamic;
+    change.modelMatrix = toQMatrix4x4(snapshot.localToWorld);
     change.hasModelMatrix = true;
+    change.visible = snapshot.visible;
+    change.hasVisible = true;
+    change.lineWidth = snapshot.width;
+
+    for (std::size_t index = 0; index < snapshot.parts.size(); ++index)
+    {
+        change.lineParts[snapshot.parts[index].partId] = snapshot.parts[index].resource;
+        ++m_pending.stagedCpuPartCount;
+    }
+
+    m_pending.cacheMilliseconds += cacheMilliseconds;
+    m_pending.cpuCopyMilliseconds += cpuCopyMilliseconds;
     m_pending.requestFrame = true;
     m_waitCondition.wakeOne();
 }
 
-void VoxelRenderThread::enqueueSetObjectVisible(MeshObjectId objectId, bool visible)
+void VoxelRenderThread::enqueueUpdateParts(const MyVoxel::Display_MeshUpdate& update,
+                                           double cacheMilliseconds, double cpuCopyMilliseconds)
 {
+    assert(update.isValid());
     QMutexLocker locker(&m_mutex);
-    PendingObjectChange& change = m_pending.objects[objectId];
+    PendingObjectChange& change = m_pending.objects[update.objectId];
 
     if (change.action == PendingRemove)
     {
         return;
     }
 
-    change.visible = visible;
-    change.hasVisible = true;
+    for (std::size_t index = 0; index < update.parts.size(); ++index)
+    {
+        change.meshParts[update.parts[index].partId] = update.parts[index];
+
+        if (update.parts[index].operation == MyVoxel::Display_MeshPartOperation::Replace)
+        {
+            ++m_pending.stagedCpuPartCount;
+        }
+    }
+
+    m_pending.cacheMilliseconds += cacheMilliseconds;
+    m_pending.cpuCopyMilliseconds += cpuCopyMilliseconds;
     m_pending.requestFrame = true;
     m_waitCondition.wakeOne();
 }
 
-void VoxelRenderThread::enqueueRemoveObject(MeshObjectId objectId)
+void VoxelRenderThread::enqueueStateUpdate(const MyVoxel::Display_MeshStateUpdate& update)
+{
+    assert(update.isValid());
+    QMutexLocker locker(&m_mutex);
+    PendingObjectChange& change = m_pending.objects[update.objectId];
+
+    if (change.action == PendingRemove)
+    {
+        return;
+    }
+
+    if (update.hasLocalToWorld)
+    {
+        change.modelMatrix = toQMatrix4x4(update.localToWorld);
+        change.hasModelMatrix = true;
+    }
+
+    if (update.hasVisible)
+    {
+        change.visible = update.visible;
+        change.hasVisible = true;
+    }
+
+    m_pending.requestFrame = true;
+    m_waitCondition.wakeOne();
+}
+
+void VoxelRenderThread::enqueueRemoveObject(std::uint64_t objectId)
 {
     QMutexLocker locker(&m_mutex);
     PendingObjectChange& change = m_pending.objects[objectId];
@@ -1233,7 +1354,8 @@ void VoxelRenderThread::run()
         {
             QMutexLocker locker(&m_mutex);
 
-            while (!m_stopRequested && m_pending.isEmpty() && !m_frameAcceptancePending && !(renderRequested && !m_readyFrameOutstanding))
+            while (!m_stopRequested && m_pending.isEmpty() && !m_frameAcceptancePending &&
+                   !(renderRequested && !m_readyFrameOutstanding))
             {
                 m_waitCondition.wait(&m_mutex);
             }
@@ -1290,14 +1412,14 @@ void VoxelRenderThread::run()
 
                 if (m_frameReceiver)
                 {
-                    QCoreApplication::postEvent(m_frameReceiver, new RenderFrameReadyEvent(frameId, textureId, frameVersion, textureSize, accumulatedStatistics));
+                    QCoreApplication::postEvent(m_frameReceiver,
+                        new RenderFrameReadyEvent(frameId, textureId, frameVersion, textureSize, accumulatedStatistics));
                 }
 
                 accumulatedStatistics.clear();
                 renderRequested = false;
             }
         }
-
     }
 
     state.cleanup();
@@ -1312,8 +1434,11 @@ void VoxelRenderThread::run()
 
     QMutexLocker locker(&m_mutex);
     m_started = false;
-    m_readyFrameOutstanding = false;
-    m_frameAcceptancePending = false;
+    m_stopRequested = false;
+    m_context = nullptr;
+    m_surface = nullptr;
+    m_frameReceiver = nullptr;
+    m_guiThread = nullptr;
 }
 
 }

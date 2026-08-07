@@ -88,7 +88,7 @@ std::size_t bitCount(std::uint64_t mask)
 // 保存一个根内单位面的二维局部坐标和最终颜色。
 struct ColoredFaceCell
 {
-    ColoredFaceCell(std::size_t uValue, std::size_t vValue, const MyVoxel::Geometry::MeshColor& colorValue)
+    ColoredFaceCell(std::size_t uValue, std::size_t vValue, const MyVoxel::Display_Color& colorValue)
         : u(uValue)
         , v(vValue)
         , color(colorValue)
@@ -97,7 +97,7 @@ struct ColoredFaceCell
 
     std::size_t u; // 当前方向平面内第一坐标。
     std::size_t v; // 当前方向平面内第二坐标。
-    MyVoxel::Geometry::MeshColor color; // 当前单位面的最终颜色。
+    MyVoxel::Display_Color color; // 当前单位面的最终颜色。
 };
 
 // 保存贪心合并二维掩码中的一个单元。
@@ -109,7 +109,7 @@ struct FaceMaskCell
     }
 
     bool active; // 当前单位面是否仍未被贪心矩形使用。
-    MyVoxel::Geometry::MeshColor color; // 当前单位面的最终颜色。
+    MyVoxel::Display_Color color; // 当前单位面的最终颜色。
 };
 
 using FacePlane = std::vector<ColoredFaceCell>;
@@ -254,7 +254,7 @@ void facePlaneCoordinates(MyVoxel::VoxelFaceDirection direction,
 }
 
 // 创建最高层网格交点对应的局部空间顶点。
-MyVoxel::Geometry::MeshVertex makeVertex(const MyVoxel::VoxelGrid& grid,
+MyVoxel::MeshVertex makeVertex(const MyVoxel::VoxelGrid& grid,
                                          std::int64_t x,
                                          std::int64_t y,
                                          std::int64_t z,
@@ -265,7 +265,7 @@ MyVoxel::Geometry::MeshVertex makeVertex(const MyVoxel::VoxelGrid& grid,
     const MyMath::Vector3& origin = grid.origin();
     const double edgeLength = grid.minimumCellEdgeLength();
 
-    return MyVoxel::Geometry::MeshVertex(
+    return MyVoxel::MeshVertex(
         origin.x() + static_cast<double>(x) * edgeLength,
         origin.y() + static_cast<double>(y) * edgeLength,
         origin.z() + static_cast<double>(z) * edgeLength,
@@ -275,7 +275,7 @@ MyVoxel::Geometry::MeshVertex makeVertex(const MyVoxel::VoxelGrid& grid,
 }
 
 // 追加一个已经按颜色贪心合并的矩形面。
-void appendMergedFace(MyVoxel::Geometry::Mesh& mesh,
+void appendMergedFace(MyVoxel::Mesh& mesh,
                       const MyVoxel::VoxelGrid& grid,
                       MyVoxel::VoxelFaceDirection direction,
                       std::int64_t fixedCoordinate,
@@ -283,7 +283,7 @@ void appendMergedFace(MyVoxel::Geometry::Mesh& mesh,
                       std::int64_t v0,
                       std::int64_t u1,
                       std::int64_t v1,
-                      const MyVoxel::Geometry::MeshColor& color)
+                      const MyVoxel::Display_Color& color)
 {
     switch (direction)
     {
@@ -403,7 +403,7 @@ void mergedPlaneCoordinates(MyVoxel::VoxelFaceDirection direction,
 }
 
 // 将一个方向平面执行按颜色矩形贪心合并并追加到网格。
-std::size_t appendGreedyPlane(MyVoxel::Geometry::Mesh& mesh,
+std::size_t appendGreedyPlane(MyVoxel::Mesh& mesh,
                               const MyVoxel::VoxelGrid& grid,
                               MyVoxel::VoxelFaceDirection direction,
                               std::size_t slice,
@@ -465,7 +465,7 @@ std::size_t appendGreedyPlane(MyVoxel::Geometry::Mesh& mesh,
                 continue;
             }
 
-            const MyVoxel::Geometry::MeshColor color = startCell.color;
+            const MyVoxel::Display_Color color = startCell.color;
             std::size_t width = 1;
 
             while (u + width < rootCellCount)
@@ -748,7 +748,7 @@ void resetPreparedPlaneColors(
     MyVoxel::VoxelFaceDirection direction,
     std::size_t slice,
     std::size_t rootCellCount,
-    const MyVoxel::Geometry::MeshColor& defaultColor,
+    const MyVoxel::Display_Color& defaultColor,
     std::vector<FaceMaskCell>& faceMask)
 {
     for (MyVoxel::VoxelRootSurfaceColorData::ConstIterator iterator =
@@ -763,7 +763,7 @@ void resetPreparedPlaneColors(
 
 // 使用活动位行驱动一个方向切片的按颜色矩形贪心合并。
 std::size_t appendGreedyMaskedPlane(
-    MyVoxel::Geometry::Mesh& mesh,
+    MyVoxel::Mesh& mesh,
     const MyVoxel::VoxelGrid& grid,
     MyVoxel::VoxelFaceDirection direction,
     std::size_t slice,
@@ -819,7 +819,7 @@ std::size_t appendGreedyMaskedPlane(
             const std::size_t u =
                 firstWordIndex * static_cast<std::size_t>(64) +
                 bitIndex;
-            const MyVoxel::Geometry::MeshColor color =
+            const MyVoxel::Display_Color color =
                 faceMask[v * rootCellCount + u].color;
             std::size_t width = 1;
 
@@ -907,13 +907,13 @@ std::size_t appendGreedyMaskedPlane(
 }
 
 // 只使用Root方向面掩码中的一个方向构建局部网格。
-MyVoxel::Geometry::Mesh buildRootMaskDirectionMesh(
+MyVoxel::Mesh buildRootMaskDirectionMesh(
     const MyVoxel::VoxelShape& shape,
     const MyVoxel::VoxelCellIndex& rootIndex,
     MyVoxel::VoxelFaceDirection direction,
     const MyVoxel::VoxelRootFaceMasks& faceMasks,
     const MyVoxel::VoxelRootSurfaceColorData& colorData,
-    const MyVoxel::Geometry::MeshColor& defaultColor,
+    const MyVoxel::Display_Color& defaultColor,
     std::size_t reserveQuadCount,
     MyVoxel::VoxelSurfaceMeshingStatistics* statistics)
 {
@@ -922,7 +922,7 @@ MyVoxel::Geometry::Mesh buildRootMaskDirectionMesh(
         statistics->clear();
     }
 
-    MyVoxel::Geometry::Mesh mesh;
+    MyVoxel::Mesh mesh;
 
     if (faceMasks.isEmpty())
     {
@@ -1066,12 +1066,12 @@ MyVoxel::Geometry::Mesh buildRootMaskDirectionMesh(
 }
 
 // 直接使用Root方向面掩码构建局部网格。
-MyVoxel::Geometry::Mesh buildRootMaskMesh(
+MyVoxel::Mesh buildRootMaskMesh(
     const MyVoxel::VoxelShape& shape,
     const MyVoxel::VoxelCellIndex& rootIndex,
     const MyVoxel::VoxelRootFaceMasks& faceMasks,
     const MyVoxel::VoxelFaceColorMap& colors,
-    const MyVoxel::Geometry::MeshColor& defaultColor,
+    const MyVoxel::Display_Color& defaultColor,
     MyVoxel::VoxelSurfaceMeshingStatistics* statistics)
 {
     if (statistics)
@@ -1079,7 +1079,7 @@ MyVoxel::Geometry::Mesh buildRootMaskMesh(
         statistics->clear();
     }
 
-    MyVoxel::Geometry::Mesh mesh;
+    MyVoxel::Mesh mesh;
 
     if (faceMasks.isEmpty())
     {
@@ -1094,7 +1094,7 @@ MyVoxel::Geometry::Mesh buildRootMaskMesh(
          ++directionValue)
     {
         MyVoxel::VoxelSurfaceMeshingStatistics directionStatistics;
-        MyVoxel::Geometry::Mesh directionMesh =
+        MyVoxel::Mesh directionMesh =
             buildRootMaskDirectionMesh(
                 shape,
                 rootIndex,
@@ -1121,11 +1121,11 @@ MyVoxel::Geometry::Mesh buildRootMaskMesh(
 }
 
 // 构建一个根拥有的全部单位面网格。
-MyVoxel::Geometry::Mesh buildRootMesh(const MyVoxel::VoxelShape& shape,
+MyVoxel::Mesh buildRootMesh(const MyVoxel::VoxelShape& shape,
                                       const MyVoxel::VoxelCellIndex& rootIndex,
                                       const MyVoxel::VoxelFaceSet::Container& faces,
                                       const MyVoxel::VoxelFaceColorMap& colors,
-                                      const MyVoxel::Geometry::MeshColor& defaultColor,
+                                      const MyVoxel::Display_Color& defaultColor,
                                       MyVoxel::VoxelSurfaceMeshingStatistics* statistics)
 {
     if (statistics)
@@ -1134,7 +1134,7 @@ MyVoxel::Geometry::Mesh buildRootMesh(const MyVoxel::VoxelShape& shape,
         statistics->sourceFaceCount = faces.size();
     }
 
-    MyVoxel::Geometry::Mesh mesh;
+    MyVoxel::Mesh mesh;
 
     if (faces.empty())
     {
@@ -1246,7 +1246,7 @@ VoxelRootSurfaceColorData::Cell::Cell()
 VoxelRootSurfaceColorData::Cell::Cell(
     std::size_t uValue,
     std::size_t vValue,
-    const Geometry::MeshColor& colorValue)
+    const Display_Color& colorValue)
     : u(uValue)
     , v(vValue)
     , color(colorValue)
@@ -1460,15 +1460,15 @@ void VoxelSurfaceMeshingStatistics::add(const VoxelSurfaceMeshingStatistics& oth
     mergedQuadCount += other.mergedQuadCount;
 }
 
-Geometry::Mesh VoxelSurfaceMesher::build(const VoxelShape& shape, const Geometry::MeshColor& defaultColor)
+Mesh VoxelSurfaceMesher::build(const VoxelShape& shape, const Display_Color& defaultColor)
 {
     const VoxelFaceColorMap colors;
     return build(shape, colors, defaultColor);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::build(const VoxelShape& shape,
+Mesh VoxelSurfaceMesher::build(const VoxelShape& shape,
                                          const VoxelFaceColorMap& colors,
-                                         const Geometry::MeshColor& defaultColor)
+                                         const Display_Color& defaultColor)
 {
     MYVOXEL_ASSERT_MESSAGE(shape.isValid(), "Voxel surface meshing requires a valid VoxelShape.");
 
@@ -1476,14 +1476,14 @@ Geometry::Mesh VoxelSurfaceMesher::build(const VoxelShape& shape,
     return build(shape, faces, colors, defaultColor);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::build(const VoxelShape& shape,
+Mesh VoxelSurfaceMesher::build(const VoxelShape& shape,
                                          const VoxelFaceSet& faces,
                                          const VoxelFaceColorMap& colors,
-                                         const Geometry::MeshColor& defaultColor)
+                                         const Display_Color& defaultColor)
 {
     MYVOXEL_ASSERT_MESSAGE(shape.isValid(), "Voxel surface mesh construction requires a valid VoxelShape.");
 
-    Geometry::Mesh mesh;
+    Mesh mesh;
 
     if (faces.isEmpty())
     {
@@ -1512,18 +1512,18 @@ Geometry::Mesh VoxelSurfaceMesher::build(const VoxelShape& shape,
     return mesh;
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
+Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
-                                             const Geometry::MeshColor& defaultColor)
+                                             const Display_Color& defaultColor)
 {
     const VoxelFaceColorMap colors;
     return buildRoot(shape, rootIndex, colors, defaultColor);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
+Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              const VoxelFaceColorMap& colors,
-                                             const Geometry::MeshColor& defaultColor)
+                                             const Display_Color& defaultColor)
 {
     MYVOXEL_ASSERT_MESSAGE(shape.isValid(), "Root voxel surface meshing requires a valid VoxelShape.");
 
@@ -1538,32 +1538,32 @@ Geometry::Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
         defaultColor);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
+Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              const VoxelFaceSet& faces,
                                              const VoxelFaceColorMap& colors,
-                                             const Geometry::MeshColor& defaultColor)
+                                             const Display_Color& defaultColor)
 {
     return buildRoot(shape, rootIndex, faces, colors, defaultColor, nullptr);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
+Mesh VoxelSurfaceMesher::buildRoot(const VoxelShape& shape,
                                              const VoxelCellIndex& rootIndex,
                                              const VoxelFaceSet& faces,
                                              const VoxelFaceColorMap& colors,
-                                             const Geometry::MeshColor& defaultColor,
+                                             const Display_Color& defaultColor,
                                              VoxelSurfaceMeshingStatistics* statistics)
 {
     MYVOXEL_ASSERT_MESSAGE(shape.isValid(), "Root voxel surface mesh construction requires a valid VoxelShape.");
     return buildRootMesh(shape, rootIndex, faces.faces(), colors, defaultColor, statistics);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRoot(
+Mesh VoxelSurfaceMesher::buildRoot(
     const VoxelShape& shape,
     const VoxelCellIndex& rootIndex,
     const VoxelRootFaceMasks& faceMasks,
     const VoxelFaceColorMap& colors,
-    const Geometry::MeshColor& defaultColor)
+    const Display_Color& defaultColor)
 {
     return buildRoot(
         shape,
@@ -1574,12 +1574,12 @@ Geometry::Mesh VoxelSurfaceMesher::buildRoot(
         nullptr);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRoot(
+Mesh VoxelSurfaceMesher::buildRoot(
     const VoxelShape& shape,
     const VoxelCellIndex& rootIndex,
     const VoxelRootFaceMasks& faceMasks,
     const VoxelFaceColorMap& colors,
-    const Geometry::MeshColor& defaultColor,
+    const Display_Color& defaultColor,
     VoxelSurfaceMeshingStatistics* statistics)
 {
     MYVOXEL_ASSERT_MESSAGE(
@@ -1595,13 +1595,13 @@ Geometry::Mesh VoxelSurfaceMesher::buildRoot(
         statistics);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
+Mesh VoxelSurfaceMesher::buildRootDirection(
     const VoxelShape& shape,
     const VoxelCellIndex& rootIndex,
     VoxelFaceDirection direction,
     const VoxelRootFaceMasks& faceMasks,
     const VoxelFaceColorMap& colors,
-    const Geometry::MeshColor& defaultColor)
+    const Display_Color& defaultColor)
 {
     return buildRootDirection(
         shape,
@@ -1613,13 +1613,13 @@ Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
         nullptr);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
+Mesh VoxelSurfaceMesher::buildRootDirection(
     const VoxelShape& shape,
     const VoxelCellIndex& rootIndex,
     VoxelFaceDirection direction,
     const VoxelRootFaceMasks& faceMasks,
     const VoxelFaceColorMap& colors,
-    const Geometry::MeshColor& defaultColor,
+    const Display_Color& defaultColor,
     VoxelSurfaceMeshingStatistics* statistics)
 {
     MYVOXEL_ASSERT_MESSAGE(
@@ -1640,13 +1640,13 @@ Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
         statistics);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
+Mesh VoxelSurfaceMesher::buildRootDirection(
     const VoxelShape& shape,
     const VoxelCellIndex& rootIndex,
     VoxelFaceDirection direction,
     const VoxelRootFaceMasks& faceMasks,
     const VoxelRootSurfaceColorData& colorData,
-    const Geometry::MeshColor& defaultColor)
+    const Display_Color& defaultColor)
 {
     return buildRootDirection(
         shape,
@@ -1658,13 +1658,13 @@ Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
         nullptr);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
+Mesh VoxelSurfaceMesher::buildRootDirection(
     const VoxelShape& shape,
     const VoxelCellIndex& rootIndex,
     VoxelFaceDirection direction,
     const VoxelRootFaceMasks& faceMasks,
     const VoxelRootSurfaceColorData& colorData,
-    const Geometry::MeshColor& defaultColor,
+    const Display_Color& defaultColor,
     VoxelSurfaceMeshingStatistics* statistics)
 {
     return buildRootDirection(
@@ -1678,13 +1678,13 @@ Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
         statistics);
 }
 
-Geometry::Mesh VoxelSurfaceMesher::buildRootDirection(
+Mesh VoxelSurfaceMesher::buildRootDirection(
     const VoxelShape& shape,
     const VoxelCellIndex& rootIndex,
     VoxelFaceDirection direction,
     const VoxelRootFaceMasks& faceMasks,
     const VoxelRootSurfaceColorData& colorData,
-    const Geometry::MeshColor& defaultColor,
+    const Display_Color& defaultColor,
     std::size_t reserveQuadCount,
     VoxelSurfaceMeshingStatistics* statistics)
 {

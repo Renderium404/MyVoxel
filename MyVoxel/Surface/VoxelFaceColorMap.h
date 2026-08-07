@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <vector>
 
-#include "MyVoxel/Geometry/Mesh/Mesh.h"
+#include "MyVoxel/Display/Base/Display_Color.h"
 
 #include "VoxelFaceAddress.h"
 #include "VoxelFaceSet.h"
@@ -22,10 +22,10 @@ public:
     // 保存一个体素面地址及其单独颜色。
     struct Entry
     {
-        Entry(const VoxelFaceAddress& face, const Geometry::MeshColor& color);
+        Entry(const VoxelFaceAddress& face, const Display_Color& color);
 
         VoxelFaceAddress first; // 单独上色的体素面地址。
-        Geometry::MeshColor second; // 当前体素面的单独颜色。
+        Display_Color second; // 当前体素面的单独颜色。
     };
 
     using Container = std::vector<Entry>;
@@ -63,12 +63,12 @@ public:
     bool contains(const VoxelFaceAddress& face) const;
 
     // 返回指定体素面的颜色，不存在单独颜色时返回空指针。
-    const Geometry::MeshColor* find(const VoxelFaceAddress& face) const;
+    const Display_Color* find(const VoxelFaceAddress& face) const;
 
     // 返回指定体素面的单独颜色，不存在时返回defaultColor。
-    const Geometry::MeshColor& colorOrDefault(
+    const Display_Color& colorOrDefault(
         const VoxelFaceAddress& face,
-        const Geometry::MeshColor& defaultColor) const;
+        const Display_Color& defaultColor) const;
 
     // 返回颜色映射起始只读迭代器。
     ConstIterator begin() const;
@@ -79,7 +79,7 @@ public:
     /// 单面修改
 
     // 设置指定体素面的颜色，新增或颜色发生变化时返回true。
-    bool set(const VoxelFaceAddress& face, const Geometry::MeshColor& color);
+    bool set(const VoxelFaceAddress& face, const Display_Color& color);
 
     // 删除指定体素面的单独颜色，不存在时返回false。
     bool erase(const VoxelFaceAddress& face);
@@ -87,7 +87,7 @@ public:
     /// 批量修改
 
     // 为指定面集合设置相同颜色，返回新增或颜色发生变化的面数量。
-    std::size_t set(const VoxelFaceSet& faces, const Geometry::MeshColor& color);
+    std::size_t set(const VoxelFaceSet& faces, const Display_Color& color);
 
     // 删除指定面集合中的全部单独颜色，返回实际删除数量。
     std::size_t erase(const VoxelFaceSet& faces);
