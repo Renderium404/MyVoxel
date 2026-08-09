@@ -10,19 +10,26 @@ namespace
 
 const double Pi = 3.1415926535897932384626433832795; // 圆周率，角度计算统一使用弧度制。
 const double TwoPi = Pi * 2.0; // 完整圆对应的弧度值。
-const double CardinalAngles[4] = {0.0, Pi * 0.5, Pi, Pi * 1.5}; // XY平面圆在X、Y方向取得极值的四个标准角。
+const double BoundsAngleToleranceScale = 64.0; // 三维圆弧包围盒极值角判断覆盖三角函数与角度规范化舍入误差。
 
 // 判断数值是否为有限值。
 bool isFiniteValue(double value)
 {
-    const double infinity = std::numeric_limits<double>::infinity();
+    const double infinity = (std::numeric_limits<double>::infinity)();
     return value == value && value != infinity && value != -infinity;
 }
 
-// 判断指定点是否为局部XY平面中的有限点。
-bool isFinitePlanarPoint(const MyMath::Vector3& point)
+// 创建以指定有限点为原点且方向与世界坐标系一致的圆弧坐标系。
+MyMath::CoordinateSystem worldXYAt(const MyMath::Vector3& center)
 {
-    return point.isFinite() && point.z() == 0.0;
+    MyMath::CoordinateSystem coordinateSystem;
+
+    if (center.isFinite())
+    {
+        coordinateSystem.setOrigin(center);
+    }
+
+    return coordinateSystem;
 }
 
 // 将角度规范化到[0,2π)范围。
@@ -44,29 +51,91 @@ double positiveAngleDistance(double startAngle, double targetAngle)
     return normalizedAngle(targetAngle - startAngle);
 }
 
+// 返回三维向量指定坐标分量。
+double component(const MyMath::Vector3& value, int axis)
+{
+    if (axis == 0)
+    {
+        return value.x();
+    }
+
+    if (axis == 1)
+    {
+        return value.y();
+    }
+
+    return value.z();
+}
+
 }
 
 namespace MyVoxel
 {
 
 Geometry_Arc::Geometry_Arc(const MyMath::Vector3& center, double radius, double startAngle, double sweepAngle)
-    : m_center(center)
+    : m_coordinateSystem(worldXYAt(center))
+    , m_center(center)
     , m_radius(radius)
     , m_startAngle(startAngle)
     , m_sweepAngle(sweepAngle)
     , m_length(radius * std::fabs(sweepAngle))
 {
-    const bool valid = isFinitePlanarPoint(center) && isFiniteValue(radius) && radius > 0.0 && isFiniteValue(startAngle) && isFiniteValue(sweepAngle) && sweepAngle != 0.0 && std::fabs(sweepAngle) <= TwoPi;
-    MYVOXEL_ASSERT_MESSAGE(valid, "Geometry_Arc parameters must define a finite non-degenerate planar circular arc with |sweepAngle| <= 2*pi.");
-    updateCachedData();
+    const bool valid = center.isFinite() && isFiniteValue(radius) && radius > 0.0 && isFiniteValue(startAngle) &&
+                       isFiniteValue(sweepAngle) && sweepAngle != 0.0 && std::fabs(sweepAngle) <= TwoPi;
+    MYVOXEL_ASSERT_MESSAGE(valid, "Geometry_Arc parameters must define a finite non-degenerate circular arc with |sweepAngle| <= 2*pi.");
+
+    if (valid)
+    {
+        updateCachedData();
+    }
 }
 
-/// 圆弧参数
+Geometry_Arc::Geometry_Arc(const MyMath::CoordinateSystem& coordinateSystem, double radius, double startAngle, double sweepAngle)
+    : m_coordinateSystem(coordinateSystem)
+    , m_center(coordinateSystem.origin())
+    , m_radius(radius)
+    , m_startAngle(startAngle)
+    , m_sweepAngle(sweepAngle)
+    , m_length(radius * std::fabs(sweepAngle))
+{
+    const bool valid = coordinateSystem.isValid() && isFiniteValue(radius) && radius > 0.0 && isFiniteValue(startAngle) &&
+                       isFiniteValue(sweepAngle) && sweepAngle != 0.0 && std::fabs(sweepAngle) <= TwoPi;
+    MYVOXEL_ASSERT_MESSAGE(valid, "Geometry_Arc requires a valid orthogonal coordinate system, positive radius and non-zero sweep within 2*pi.");
+
+    if (valid)
+    {
+        updateCachedData();
+    }
+}
+
+/// 圆弧坐标系
+
+const MyMath::CoordinateSystem& Geometry_Arc::coordinateSystem() const
+{
+    return m_coordinateSystem;
+}
 
 const MyMath::Vector3& Geometry_Arc::center() const
 {
     return m_center;
 }
+
+MyMath::Vector3 Geometry_Arc::xAxis() const
+{
+    return m_coordinateSystem.xAxis();
+}
+
+MyMath::Vector3 Geometry_Arc::yAxis() const
+{
+    return m_coordinateSystem.yAxis();
+}
+
+MyMath::Vector3 Geometry_Arc::normal() const
+{
+    return m_coordinateSystem.zAxis();
+}
+
+/// 圆弧参数
 
 double Geometry_Arc::radius() const
 {
@@ -131,9 +200,7 @@ const Bounds3& Geometry_Arc::bounds() const
 MyMath::Vector3 Geometry_Arc::pointAt(double t) const
 {
     MYVOXEL_ASSERT_MESSAGE(t >= 0.0 && t <= 1.0, "Geometry_Arc parameter must be in [0,1].");
-
-    const double angle = m_startAngle + m_sweepAngle * t;
-    return MyMath::Vector3(m_center.x() + m_radius * std::cos(angle), m_center.y() + m_radius * std::sin(angle), 0.0);
+    return pointAtAngle(m_startAngle + m_sweepAngle * t);
 }
 
 MyMath::Vector3 Geometry_Arc::tangentAt(double t) const
@@ -142,34 +209,59 @@ MyMath::Vector3 Geometry_Arc::tangentAt(double t) const
 
     const double angle = m_startAngle + m_sweepAngle * t;
     const double direction = m_sweepAngle > 0.0 ? 1.0 : -1.0;
-    return MyMath::Vector3(-std::sin(angle) * direction, std::cos(angle) * direction, 0.0);
+    const MyMath::Vector3 localTangent(-std::sin(angle) * direction, std::cos(angle) * direction, 0.0);
+    return m_coordinateSystem.mapVector(localTangent);
 }
 
 /// 曲线创建
 
 Foundation::RefPtr<const Geometry_Curve> Geometry_Arc::reversed() const
 {
-    return Foundation::RefPtr<const Geometry_Curve>(new Geometry_Arc(m_center, m_radius, m_startAngle + m_sweepAngle, -m_sweepAngle));
+    return Foundation::RefPtr<const Geometry_Curve>(new Geometry_Arc(m_coordinateSystem, m_radius, m_startAngle + m_sweepAngle, -m_sweepAngle));
+}
+
+/// 内部辅助
+
+MyMath::Vector3 Geometry_Arc::pointAtAngle(double angle) const
+{
+    return m_coordinateSystem.toGlobal(MyMath::Vector3(m_radius * std::cos(angle), m_radius * std::sin(angle), 0.0));
 }
 
 void Geometry_Arc::updateCachedData()
 {
-    m_startPoint = pointAt(0.0);
-    m_endPoint = pointAt(1.0);
+    m_startPoint = pointAtAngle(m_startAngle);
+    m_endPoint = pointAtAngle(m_startAngle + m_sweepAngle);
     m_bounds.clear();
     m_bounds.include(m_startPoint);
     m_bounds.include(m_endPoint);
 
-    const double angleTolerance = std::numeric_limits<double>::epsilon() * 32.0; // 覆盖标准角三角函数和角度规范化产生的舍入误差。
+    const MyMath::Vector3 localXAxis = m_coordinateSystem.xAxis();
+    const MyMath::Vector3 localYAxis = m_coordinateSystem.yAxis();
+    const double angleTolerance = (std::numeric_limits<double>::epsilon)() * BoundsAngleToleranceScale; // 仅用于判断理论极值角是否属于圆弧。
 
-    for (int index = 0; index < 4; ++index)
+    for (int axis = 0; axis < 3; ++axis)
     {
-        if (containsAngle(CardinalAngles[index], angleTolerance))
+        const double cosineCoefficient = component(localXAxis, axis);
+        const double sineCoefficient = component(localYAxis, axis);
+
+        if (cosineCoefficient == 0.0 && sineCoefficient == 0.0)
         {
-            m_bounds.include(MyMath::Vector3(m_center.x() + m_radius * std::cos(CardinalAngles[index]), m_center.y() + m_radius * std::sin(CardinalAngles[index]), 0.0));
+            continue;
+        }
+
+        const double maximumAngle = std::atan2(sineCoefficient, cosineCoefficient);
+        const double minimumAngle = maximumAngle + Pi;
+
+        if (containsAngle(maximumAngle, angleTolerance))
+        {
+            m_bounds.include(pointAtAngle(maximumAngle));
+        }
+
+        if (containsAngle(minimumAngle, angleTolerance))
+        {
+            m_bounds.include(pointAtAngle(minimumAngle));
         }
     }
 }
-
 
 }

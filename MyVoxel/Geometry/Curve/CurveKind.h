@@ -4,14 +4,13 @@
 namespace MyVoxel
 {
 
-// 标识局部XY平面有限曲线的标准类型。
+// 标识有限有向曲线几何的标准类型。
 enum class CurveKind
 {
     Unknown, // 无法识别的曲线类型。
     Line, // 有限有向直线段。
     Arc // 有限有向圆弧段。
 };
-
 
 }
 
