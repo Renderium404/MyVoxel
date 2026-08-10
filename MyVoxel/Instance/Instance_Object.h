@@ -16,16 +16,21 @@ public:
 
     // 判断当前实例放置是否由可逆仿射变换构成。
     bool isPlacementValid() const;
+
     // 返回当前实例从局部空间到世界空间的可逆仿射变换。
     const MyMath::Matrix4& localToWorld() const;
-    // 返回当前实例从世界空间到局部空间的逆变换。
+
+    // 返回当前实例从世界空间到局部空间的逆放置变换。
     const MyMath::Matrix4& worldToLocal() const;
 
 protected:
     // 使用单位矩阵构造有效空间放置。
     Instance_Object();
+
     // 使用指定可逆仿射矩阵构造空间放置。
     explicit Instance_Object(const MyMath::Matrix4& localToWorld);
+
+    // 通过具体实例类型销毁空间放置基类。
     ~Instance_Object();
 
 private:

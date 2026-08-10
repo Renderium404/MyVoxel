@@ -11,25 +11,32 @@
 namespace
 {
 
-const double Pi = 3.1415926535897932384626433832795; // 圆周率，圆弧交点计算统一使用弧度制。
+const double Pi = 3.1415926535897932384626433832795; // 二维圆弧交点和面积计算统一使用的圆周率。
+const double NumericalScale = 64.0; // 浮点角度、坐标和边界内部探针覆盖舍入误差使用的固定倍数。
 
 // 判断标量是否为有限值。
 bool isFiniteValue(double value)
 {
-    const double infinity = std::numeric_limits<double>::infinity();
+    const double infinity = (std::numeric_limits<double>::infinity)();
     return value == value && value != infinity && value != -infinity;
-}
-
-// 判断点是否为局部XY平面中的有限点。
-bool isFinitePlanarPoint(const MyMath::Vector3& point)
-{
-    return point.isFinite() && point.z() == 0.0;
 }
 
 // 判断半尺寸是否为有限非负数据。
 bool isValidExtent(const MyMath::Vector3& extent)
 {
     return extent.isFinite() && extent.x() >= 0.0 && extent.y() >= 0.0 && extent.z() >= 0.0;
+}
+
+// 判断点是否在指定容差内位于局部XY平面。
+bool isPlanarPoint(const MyMath::Vector3& point, double tolerance)
+{
+    return point.isFinite() && std::fabs(point.z()) <= tolerance;
+}
+
+// 将三维点投影到当前局部XY母线平面。
+MyMath::Vector3 projectedPoint(const MyMath::Vector3& point)
+{
+    return MyMath::Vector3(point.x(), point.y(), 0.0);
 }
 
 // 将数值限制到指定闭区间。
@@ -71,11 +78,107 @@ double stableLength(double first, double second)
     return scale * std::sqrt(normalizedFirst * normalizedFirst + normalizedSecond * normalizedSecond);
 }
 
+// 返回圆弧平面法向允许偏离局部Z轴的数值容差。
+double arcNormalTolerance(const MyVoxel::Geometry_Arc& arc, double profileTolerance)
+{
+    double scale = 1.0;
+    scale = (std::max)(scale, arc.radius());
+    scale = (std::max)(scale, std::fabs(arc.center().x()));
+    scale = (std::max)(scale, std::fabs(arc.center().y()));
+    return (std::max)(std::numeric_limits<double>::epsilon() * NumericalScale, profileTolerance / scale);
+}
+
+// 判断任意坐标系圆弧是否在指定容差内位于当前局部XY母线平面。
+bool isPlanarArc(const MyVoxel::Geometry_Arc& arc, double profileTolerance)
+{
+    if (!isPlanarPoint(arc.center(), profileTolerance) || !arc.bounds().isValid())
+    {
+        return false;
+    }
+
+    if (std::fabs(arc.bounds().minimum().z()) > profileTolerance || std::fabs(arc.bounds().maximum().z()) > profileTolerance)
+    {
+        return false;
+    }
+
+    const MyMath::Vector3 normal = arc.normal();
+    const double normalTolerance = arcNormalTolerance(arc, profileTolerance);
+    return normal.isFinite() && std::fabs(normal.x()) <= normalTolerance && std::fabs(normal.y()) <= normalTolerance &&
+           std::fabs(std::fabs(normal.z()) - 1.0) <= normalTolerance;
+}
+
+// 将Line规范化到严格局部XY平面。
+MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve> canonicalLine(const MyVoxel::Geometry_Line& line, double profileTolerance)
+{
+    if (!isPlanarPoint(line.startPoint(), profileTolerance) || !isPlanarPoint(line.endPoint(), profileTolerance))
+    {
+        return MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve>();
+    }
+
+    const MyMath::Vector3 startPoint = projectedPoint(line.startPoint());
+    const MyMath::Vector3 endPoint = projectedPoint(line.endPoint());
+
+    if (startPoint.isEqualTo(endPoint, 0.0))
+    {
+        return MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve>();
+    }
+
+    return MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve>(new MyVoxel::Geometry_Line(startPoint, endPoint));
+}
+
+// 将任意坐标系中的XY共面Arc规范化为世界基准XY坐标表达，保持实际二维方向和扫掠范围。
+MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve> canonicalArc(const MyVoxel::Geometry_Arc& arc, double profileTolerance)
+{
+    if (!isPlanarArc(arc, profileTolerance))
+    {
+        return MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve>();
+    }
+
+    const MyMath::Vector3 center = projectedPoint(arc.center());
+    const MyMath::Vector3 sourceStart = projectedPoint(arc.startPoint());
+    const MyMath::Vector3 sourceEnd = projectedPoint(arc.endPoint());
+    const double startAngle = std::atan2(sourceStart.y() - center.y(), sourceStart.x() - center.x());
+    const double orientationSign = arc.normal().z() >= 0.0 ? 1.0 : -1.0;
+    const double sweepAngle = arc.sweepAngle() * orientationSign;
+
+    MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve> result(
+        new MyVoxel::Geometry_Arc(center, arc.radius(), startAngle, sweepAngle));
+
+    if (!result->startPoint().isEqualTo(sourceStart, profileTolerance) || !result->endPoint().isEqualTo(sourceEnd, profileTolerance))
+    {
+        return MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve>();
+    }
+
+    return result;
+}
+
+// 将支持的母线曲线规范化到严格局部XY平面。
+MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve> canonicalProfileCurve(const MyVoxel::Geometry_Curve& curve, double profileTolerance)
+{
+    if (curve.kind() == MyVoxel::CurveKind::Line)
+    {
+        return canonicalLine(static_cast<const MyVoxel::Geometry_Line&>(curve), profileTolerance);
+    }
+
+    if (curve.kind() == MyVoxel::CurveKind::Arc)
+    {
+        return canonicalArc(static_cast<const MyVoxel::Geometry_Arc&>(curve), profileTolerance);
+    }
+
+    return MyVoxel::Foundation::RefPtr<const MyVoxel::Geometry_Curve>();
+}
+
 // 返回点到局部XY平面直线段的最短距离平方。
 double pointLineDistanceSquared(const MyMath::Vector3& point, const MyVoxel::Geometry_Line& line)
 {
     const MyMath::Vector3 segment = line.endPoint() - line.startPoint();
     const double lengthSquared = segment.x() * segment.x() + segment.y() * segment.y();
+
+    if (lengthSquared == 0.0)
+    {
+        return std::numeric_limits<double>::infinity();
+    }
+
     const MyMath::Vector3 relative = point - line.startPoint();
     const double parameter = clampValue((relative.x() * segment.x() + relative.y() * segment.y()) / lengthSquared, 0.0, 1.0);
     const MyMath::Vector3 closest = line.startPoint() + segment * parameter;
@@ -84,7 +187,7 @@ double pointLineDistanceSquared(const MyMath::Vector3& point, const MyVoxel::Geo
     return deltaX * deltaX + deltaY * deltaY;
 }
 
-// 判断点是否位于局部XY平面圆弧边界上。
+// 判断点是否位于规范化局部XY圆弧边界上。
 bool pointOnArc(const MyMath::Vector3& point, const MyVoxel::Geometry_Arc& arc, double tolerance)
 {
     const double deltaX = point.x() - arc.center().x();
@@ -101,7 +204,7 @@ bool pointOnArc(const MyMath::Vector3& point, const MyVoxel::Geometry_Arc& arc, 
     return arc.containsAngle(angle, angleTolerance);
 }
 
-// 判断点是否位于指定曲线几何边界上。
+// 判断点是否位于指定规范化母线曲线边界上。
 bool pointOnCurve(const MyMath::Vector3& point, const MyVoxel::Geometry_Curve& curve, double tolerance)
 {
     if (curve.kind() == MyVoxel::CurveKind::Line)
@@ -112,7 +215,7 @@ bool pointOnCurve(const MyMath::Vector3& point, const MyVoxel::Geometry_Curve& c
     return pointOnArc(point, static_cast<const MyVoxel::Geometry_Arc&>(curve), tolerance);
 }
 
-// 返回直线段与向右水平射线的交点数量，查询Y已避开轮廓端点和极值。
+// 返回直线段与向右水平射线的交点数量，查询Y已避开轮廓端点。
 unsigned int lineHorizontalRayIntersections(const MyMath::Vector3& point, double queryY, const MyVoxel::Geometry_Line& line, double tolerance)
 {
     const double startY = line.startPoint().y();
@@ -128,7 +231,7 @@ unsigned int lineHorizontalRayIntersections(const MyMath::Vector3& point, double
     return intersectionX > point.x() + tolerance ? 1U : 0U;
 }
 
-// 返回圆弧与向右水平射线的交点数量，查询Y已避开轮廓端点和极值。
+// 返回圆弧与向右水平射线的交点数量，查询Y已避开轮廓端点和水平极值。
 unsigned int arcHorizontalRayIntersections(const MyMath::Vector3& point, double queryY, const MyVoxel::Geometry_Arc& arc, double tolerance)
 {
     const double sine = (queryY - arc.center().y()) / arc.radius();
@@ -141,7 +244,7 @@ unsigned int arcHorizontalRayIntersections(const MyMath::Vector3& point, double 
     const double clampedSine = clampValue(sine, -1.0, 1.0);
     const double firstAngle = std::asin(clampedSine);
     const double secondAngle = Pi - firstAngle;
-    const double angleTolerance = std::numeric_limits<double>::epsilon() * 64.0; // 覆盖反三角函数和角度规范化的舍入误差。
+    const double angleTolerance = std::numeric_limits<double>::epsilon() * NumericalScale; // 覆盖反三角函数和角度规范化产生的舍入误差。
     const double candidateAngles[2] = {firstAngle, secondAngle};
     unsigned int count = 0;
 
@@ -175,7 +278,8 @@ unsigned int arcHorizontalRayIntersections(const MyMath::Vector3& point, double 
 // 判断点是否位于局部XY平面矩形内部或边界上。
 bool rectangleContainsPoint(const MyVoxel::Bounds3& bounds, const MyMath::Vector3& point, double tolerance)
 {
-    return point.x() >= bounds.minimum().x() - tolerance && point.x() <= bounds.maximum().x() + tolerance && point.y() >= bounds.minimum().y() - tolerance && point.y() <= bounds.maximum().y() + tolerance;
+    return point.x() >= bounds.minimum().x() - tolerance && point.x() <= bounds.maximum().x() + tolerance &&
+           point.y() >= bounds.minimum().y() - tolerance && point.y() <= bounds.maximum().y() + tolerance;
 }
 
 // 使用二维Slab算法判断直线段是否与局部XY平面矩形相交或接触。
@@ -221,10 +325,10 @@ bool lineIntersectsRectangle(const MyVoxel::Geometry_Line& line, const MyVoxel::
     return true;
 }
 
-// 判断指定圆弧角点是否落在局部XY平面矩形边界范围内。
+// 判断指定圆弧候选角对应点是否落在矩形指定方向边界范围内。
 bool arcCandidateInsideRectangleEdge(const MyVoxel::Geometry_Arc& arc, double angle, const MyVoxel::Bounds3& bounds, double tolerance, bool verticalEdge)
 {
-    const double angleTolerance = std::numeric_limits<double>::epsilon() * 64.0; // 覆盖反三角函数和角度规范化的舍入误差。
+    const double angleTolerance = std::numeric_limits<double>::epsilon() * NumericalScale; // 覆盖反三角函数和角度规范化舍入误差。
 
     if (!arc.containsAngle(angle, angleTolerance))
     {
@@ -242,7 +346,7 @@ bool arcCandidateInsideRectangleEdge(const MyVoxel::Geometry_Arc& arc, double an
     return x >= bounds.minimum().x() - tolerance && x <= bounds.maximum().x() + tolerance;
 }
 
-// 判断圆弧是否与局部XY平面矩形相交、接触或完整位于矩形内部。
+// 判断规范化圆弧是否与局部XY平面矩形相交或接触。
 bool arcIntersectsRectangle(const MyVoxel::Geometry_Arc& arc, const MyVoxel::Bounds3& bounds, double tolerance)
 {
     if (rectangleContainsPoint(bounds, arc.startPoint(), tolerance) || rectangleContainsPoint(bounds, arc.endPoint(), tolerance))
@@ -260,7 +364,8 @@ bool arcIntersectsRectangle(const MyVoxel::Geometry_Arc& arc, const MyVoxel::Bou
         {
             const double angle = std::acos(clampValue(cosine, -1.0, 1.0));
 
-            if (arcCandidateInsideRectangleEdge(arc, angle, bounds, tolerance, true) || arcCandidateInsideRectangleEdge(arc, -angle, bounds, tolerance, true))
+            if (arcCandidateInsideRectangleEdge(arc, angle, bounds, tolerance, true) ||
+                arcCandidateInsideRectangleEdge(arc, -angle, bounds, tolerance, true))
             {
                 return true;
             }
@@ -277,7 +382,8 @@ bool arcIntersectsRectangle(const MyVoxel::Geometry_Arc& arc, const MyVoxel::Bou
         {
             const double angle = std::asin(clampValue(sine, -1.0, 1.0));
 
-            if (arcCandidateInsideRectangleEdge(arc, angle, bounds, tolerance, false) || arcCandidateInsideRectangleEdge(arc, Pi - angle, bounds, tolerance, false))
+            if (arcCandidateInsideRectangleEdge(arc, angle, bounds, tolerance, false) ||
+                arcCandidateInsideRectangleEdge(arc, Pi - angle, bounds, tolerance, false))
             {
                 return true;
             }
@@ -287,7 +393,7 @@ bool arcIntersectsRectangle(const MyVoxel::Geometry_Arc& arc, const MyVoxel::Bou
     return false;
 }
 
-// 判断指定曲线几何是否与局部XY平面矩形相交、接触或完整位于矩形内部。
+// 判断指定规范化母线曲线是否与局部XY平面矩形相交或接触。
 bool curveIntersectsRectangle(const MyVoxel::Geometry_Curve& curve, const MyVoxel::Bounds3& bounds, double tolerance)
 {
     if (curve.kind() == MyVoxel::CurveKind::Line)
@@ -298,7 +404,36 @@ bool curveIntersectsRectangle(const MyVoxel::Geometry_Curve& curve, const MyVoxe
     return arcIntersectsRectangle(static_cast<const MyVoxel::Geometry_Arc&>(curve), bounds, tolerance);
 }
 
-// 返回指定有向曲线几何对闭合轮廓有符号面积的精确贡献。
+// 返回矩形用于识别真实内部穿越的数值收缩距离。
+double rectangleInteriorOffset(const MyVoxel::Bounds3& bounds, double tolerance)
+{
+    double scale = 1.0;
+    scale = (std::max)(scale, std::fabs(bounds.minimum().x()));
+    scale = (std::max)(scale, std::fabs(bounds.minimum().y()));
+    scale = (std::max)(scale, std::fabs(bounds.maximum().x()));
+    scale = (std::max)(scale, std::fabs(bounds.maximum().y()));
+    return (std::max)(tolerance, scale * std::numeric_limits<double>::epsilon() * NumericalScale);
+}
+
+// 尝试构造矩形严格内部区域，退化矩形没有二维内部。
+bool makeInteriorBounds(const MyVoxel::Bounds3& bounds, double offset, MyVoxel::Bounds3& interior)
+{
+    const double minimumX = bounds.minimum().x() + offset;
+    const double maximumX = bounds.maximum().x() - offset;
+    const double minimumY = bounds.minimum().y() + offset;
+    const double maximumY = bounds.maximum().y() - offset;
+
+    if (minimumX > maximumX || minimumY > maximumY)
+    {
+        return false;
+    }
+
+    interior = MyVoxel::Bounds3(MyMath::Vector3(minimumX, minimumY, 0.0),
+                                MyMath::Vector3(maximumX, maximumY, 0.0));
+    return interior.isValid();
+}
+
+// 返回指定规范化有向母线曲线对闭合轮廓有符号面积的精确贡献。
 double curveSignedAreaContribution(const MyVoxel::Geometry_Curve& curve)
 {
     if (curve.kind() == MyVoxel::CurveKind::Line)
@@ -310,7 +445,9 @@ double curveSignedAreaContribution(const MyVoxel::Geometry_Curve& curve)
     const MyVoxel::Geometry_Arc& arc = static_cast<const MyVoxel::Geometry_Arc&>(curve);
     const double firstAngle = arc.startAngle();
     const double secondAngle = arc.startAngle() + arc.sweepAngle();
-    const double integral = arc.radius() * arc.center().x() * (std::sin(secondAngle) - std::sin(firstAngle)) - arc.radius() * arc.center().y() * (std::cos(secondAngle) - std::cos(firstAngle)) + arc.radius() * arc.radius() * arc.sweepAngle();
+    const double integral = arc.radius() * arc.center().x() * (std::sin(secondAngle) - std::sin(firstAngle)) -
+                            arc.radius() * arc.center().y() * (std::cos(secondAngle) - std::cos(firstAngle)) +
+                            arc.radius() * arc.radius() * arc.sweepAngle();
     return integral * 0.5;
 }
 
@@ -319,18 +456,36 @@ double curveSignedAreaContribution(const MyVoxel::Geometry_Curve& curve)
 namespace MyVoxel
 {
 
-Geometry_Revolved::Geometry_Revolved(const std::vector<Foundation::RefPtr<const Geometry_Curve> >& profileCurves, double connectionTolerance)
-    : m_profileCurves(profileCurves)
-    , m_connectionTolerance(connectionTolerance)
+Geometry_Revolved::Geometry_Revolved(const std::vector<Foundation::RefPtr<const Geometry_Curve> >& profileCurves, double profileTolerance)
+    : m_profileTolerance(profileTolerance)
     , m_profileSignedArea(0.0)
     , m_radialSign(0.0)
     , m_valid(false)
 {
-    MYVOXEL_ASSERT_MESSAGE(isFiniteValue(connectionTolerance) && connectionTolerance >= 0.0, "Geometry_Revolved connection tolerance must be finite and non-negative.");
+    MYVOXEL_ASSERT_MESSAGE(isFiniteValue(profileTolerance) && profileTolerance >= 0.0,
+                           "Geometry_Revolved profile tolerance must be finite and non-negative.");
+
+    if (!isFiniteValue(profileTolerance) || profileTolerance < 0.0)
+    {
+        return;
+    }
+
+    if (!buildCanonicalProfile(profileCurves))
+    {
+        return;
+    }
+
     rebuild();
 }
 
-/// 轮廓几何数据
+/// 状态判断
+
+bool Geometry_Revolved::isValid() const
+{
+    return m_valid;
+}
+
+/// 母线几何数据
 
 std::size_t Geometry_Revolved::profileCurveCount() const
 {
@@ -349,9 +504,9 @@ const std::vector<Foundation::RefPtr<const Geometry_Curve> >& Geometry_Revolved:
     return m_profileCurves;
 }
 
-double Geometry_Revolved::connectionTolerance() const
+double Geometry_Revolved::profileTolerance() const
 {
-    return m_connectionTolerance;
+    return m_profileTolerance;
 }
 
 const Bounds3& Geometry_Revolved::profileBounds() const
@@ -379,7 +534,6 @@ ShapeKind Geometry_Revolved::kind() const
     return ShapeKind::Revolved;
 }
 
-
 /// 标准空间查询
 
 bool Geometry_Revolved::containsLocalPoint(const MyMath::Vector3& point) const
@@ -393,7 +547,7 @@ bool Geometry_Revolved::containsLocalPoint(const MyMath::Vector3& point) const
     }
 
     const double radius = stableLength(point.x(), point.y());
-    return containsProfilePoint(MyMath::Vector3(m_radialSign * radius, point.z(), 0.0), m_connectionTolerance);
+    return containsProfilePoint(MyMath::Vector3(m_radialSign * radius, point.z(), 0.0), m_profileTolerance);
 }
 
 ShapeRelation Geometry_Revolved::classifyLocalBounds(const Bounds3& bounds) const
@@ -413,6 +567,41 @@ ShapeRelation Geometry_Revolved::classifyLocalBoundsFast(const MyMath::Vector3& 
     return classifyRange(center - extent, center + extent);
 }
 
+/// 母线规范化
+
+bool Geometry_Revolved::buildCanonicalProfile(const std::vector<Foundation::RefPtr<const Geometry_Curve> >& profileCurves)
+{
+    m_profileCurves.clear();
+
+    if (profileCurves.empty())
+    {
+        return false;
+    }
+
+    m_profileCurves.reserve(profileCurves.size());
+
+    for (std::size_t index = 0; index < profileCurves.size(); ++index)
+    {
+        if (!profileCurves[index])
+        {
+            m_profileCurves.clear();
+            return false;
+        }
+
+        const Foundation::RefPtr<const Geometry_Curve> curve = canonicalProfileCurve(*profileCurves[index], m_profileTolerance);
+
+        if (!curve)
+        {
+            m_profileCurves.clear();
+            return false;
+        }
+
+        m_profileCurves.push_back(curve);
+    }
+
+    return true;
+}
+
 /// 缓存建立
 
 void Geometry_Revolved::rebuild()
@@ -423,19 +612,9 @@ void Geometry_Revolved::rebuild()
     clearLocalBounds();
     m_valid = false;
 
-    if (!isFiniteValue(m_connectionTolerance) || m_connectionTolerance < 0.0 || m_profileCurves.empty())
+    if (m_profileCurves.empty())
     {
         return;
-    }
-
-    for (std::size_t index = 0; index < m_profileCurves.size(); ++index)
-    {
-        const Foundation::RefPtr<const Geometry_Curve>& resource = m_profileCurves[index];
-
-        if (!resource || (resource->kind() != CurveKind::Line && resource->kind() != CurveKind::Arc) || !isFinitePlanarPoint(resource->startPoint()) || !isFinitePlanarPoint(resource->endPoint()) || !isFiniteValue(resource->length()) || resource->length() <= 0.0 || !resource->bounds().isValid())
-        {
-            return;
-        }
     }
 
     for (std::size_t index = 0; index < m_profileCurves.size(); ++index)
@@ -443,7 +622,12 @@ void Geometry_Revolved::rebuild()
         const Geometry_Curve& current = *m_profileCurves[index];
         const Geometry_Curve& next = *m_profileCurves[(index + 1) % m_profileCurves.size()];
 
-        if (!current.endPoint().isEqualTo(next.startPoint(), m_connectionTolerance))
+        if (!current.endPoint().isEqualTo(next.startPoint(), m_profileTolerance))
+        {
+            return;
+        }
+
+        if (!current.bounds().isValid() || !isFiniteValue(current.length()) || current.length() <= 0.0)
         {
             return;
         }
@@ -459,8 +643,8 @@ void Geometry_Revolved::rebuild()
 
     const double minimumX = m_profileBounds.minimum().x();
     const double maximumX = m_profileBounds.maximum().x();
-    const bool onPositiveSide = minimumX >= -m_connectionTolerance;
-    const bool onNegativeSide = maximumX <= m_connectionTolerance;
+    const bool onPositiveSide = minimumX >= -m_profileTolerance;
+    const bool onNegativeSide = maximumX <= m_profileTolerance;
 
     if (!onPositiveSide && !onNegativeSide)
     {
@@ -484,7 +668,7 @@ void Geometry_Revolved::rebuild()
     m_valid = true;
 }
 
-/// 轮廓区域查询
+/// 母线区域查询
 
 bool Geometry_Revolved::containsProfilePoint(const MyMath::Vector3& point, double tolerance) const
 {
@@ -509,7 +693,7 @@ bool Geometry_Revolved::containsProfilePoint(const MyMath::Vector3& point, doubl
     coordinateScale = (std::max)(coordinateScale, std::fabs(m_profileBounds.maximum().x()));
     coordinateScale = (std::max)(coordinateScale, std::fabs(m_profileBounds.maximum().y()));
 
-    const double queryY = point.y() + coordinateScale * std::numeric_limits<double>::epsilon() * 64.0; // 避开轮廓顶点和圆弧水平极值，稳定奇偶射线计数。
+    const double queryY = point.y() + coordinateScale * std::numeric_limits<double>::epsilon() * NumericalScale; // 避开母线顶点和圆弧水平极值，稳定奇偶射线计数。
     unsigned int intersectionCount = 0;
 
     for (std::size_t index = 0; index < m_profileCurves.size(); ++index)
@@ -536,15 +720,70 @@ ShapeRelation Geometry_Revolved::classifyProfileBounds(const Bounds3& bounds, do
         return ShapeRelation::Outside;
     }
 
+    const MyMath::Vector3 corners[4] =
+    {
+        MyMath::Vector3(bounds.minimum().x(), bounds.minimum().y(), 0.0),
+        MyMath::Vector3(bounds.maximum().x(), bounds.minimum().y(), 0.0),
+        MyMath::Vector3(bounds.maximum().x(), bounds.maximum().y(), 0.0),
+        MyMath::Vector3(bounds.minimum().x(), bounds.maximum().y(), 0.0)
+    };
+
+    bool allCornersInside = true;
+    bool anyCornerInside = false;
+
+    for (int index = 0; index < 4; ++index)
+    {
+        const bool inside = containsProfilePoint(corners[index], tolerance);
+        allCornersInside = allCornersInside && inside;
+        anyCornerInside = anyCornerInside || inside;
+    }
+
+    bool boundaryIntersectsClosedBounds = false;
+
     for (std::size_t index = 0; index < m_profileCurves.size(); ++index)
     {
         if (curveIntersectsRectangle(*m_profileCurves[index], bounds, tolerance))
         {
-            return ShapeRelation::Intersecting;
+            boundaryIntersectsClosedBounds = true;
+            break;
         }
     }
 
-    return containsProfilePoint(bounds.center(), tolerance) ? ShapeRelation::Inside : ShapeRelation::Outside;
+    if (allCornersInside)
+    {
+        const double offset = rectangleInteriorOffset(bounds, tolerance);
+        Bounds3 interior;
+
+        if (makeInteriorBounds(bounds, offset, interior))
+        {
+            for (std::size_t index = 0; index < m_profileCurves.size(); ++index)
+            {
+                if (curveIntersectsRectangle(*m_profileCurves[index], interior, 0.0))
+                {
+                    return ShapeRelation::Intersecting;
+                }
+            }
+
+            return ShapeRelation::Inside;
+        }
+
+        const bool pointBounds = bounds.minimum().x() == bounds.maximum().x() &&
+                                 bounds.minimum().y() == bounds.maximum().y();
+
+        if (pointBounds)
+        {
+            return ShapeRelation::Inside;
+        }
+
+        return boundaryIntersectsClosedBounds ? ShapeRelation::Intersecting : ShapeRelation::Inside;
+    }
+
+    if (boundaryIntersectsClosedBounds || anyCornerInside || containsProfilePoint(bounds.center(), tolerance))
+    {
+        return ShapeRelation::Intersecting;
+    }
+
+    return ShapeRelation::Outside;
 }
 
 ShapeRelation Geometry_Revolved::classifyRange(const MyMath::Vector3& minimum, const MyMath::Vector3& maximum) const
@@ -564,28 +803,11 @@ ShapeRelation Geometry_Revolved::classifyRange(const MyMath::Vector3& minimum, c
     const double farthestY = (std::max)(std::fabs(minimum.y()), std::fabs(maximum.y()));
     const double minimumRadius = stableLength(nearestX, nearestY);
     const double maximumRadius = stableLength(farthestX, farthestY);
-
     const double profileMinimumX = m_radialSign > 0.0 ? minimumRadius : -maximumRadius;
     const double profileMaximumX = m_radialSign > 0.0 ? maximumRadius : -minimumRadius;
-    const Bounds3 profileBounds(MyMath::Vector3(profileMinimumX, minimum.z(), 0.0), MyMath::Vector3(profileMaximumX, maximum.z(), 0.0));
-    const ShapeRelation relation = classifyProfileBounds(profileBounds, m_connectionTolerance);
-
-    if (relation != ShapeRelation::Intersecting || minimumRadius > 0.0)
-    {
-        return relation;
-    }
-
-    double coordinateScale = 1.0;
-    coordinateScale = (std::max)(coordinateScale, maximumRadius);
-    coordinateScale = (std::max)(coordinateScale, std::fabs(minimum.z()));
-    coordinateScale = (std::max)(coordinateScale, std::fabs(maximum.z()));
-
-    const double axisOffset = (std::max)(m_connectionTolerance, coordinateScale * std::numeric_limits<double>::epsilon() * 64.0); // 旋转轴上的轮廓边退化为轴线，使用极小径向探针区分真实表面相交。
-    const double probeMinimumX = m_radialSign > 0.0 ? axisOffset : -maximumRadius;
-    const double probeMaximumX = m_radialSign > 0.0 ? maximumRadius : -axisOffset;
-    const Bounds3 probeBounds(MyMath::Vector3((std::min)(probeMinimumX, probeMaximumX), minimum.z(), 0.0), MyMath::Vector3((std::max)(probeMinimumX, probeMaximumX), maximum.z(), 0.0));
-
-    return classifyProfileBounds(probeBounds, m_connectionTolerance) == ShapeRelation::Inside ? ShapeRelation::Inside : relation;
+    const Bounds3 profileBounds(MyMath::Vector3(profileMinimumX, minimum.z(), 0.0),
+                                MyMath::Vector3(profileMaximumX, maximum.z(), 0.0));
+    return classifyProfileBounds(profileBounds, m_profileTolerance);
 }
 
 }

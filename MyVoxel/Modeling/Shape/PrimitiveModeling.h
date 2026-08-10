@@ -2,8 +2,8 @@
 #define MYVOXEL_MODELING_SHAPE_PRIMITIVEMODELING_H
 
 #include "MyMath/Matrix4.h"
-#include "MyVoxel/Topology/Shape.h"
-#include "MyVoxel/Topology/Topology_Shape.h"
+#include "MyVoxel/Instance/Shape.h"
+#include "MyVoxel/Topology/Shape/Topology_Shape.h"
 
 namespace MyVoxel
 {

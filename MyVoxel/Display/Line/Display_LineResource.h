@@ -8,24 +8,30 @@
 #include "MyVoxel/Base/Bounds3.h"
 #include "MyVoxel/Display/Base/Display_Color.h"
 #include "MyVoxel/Display/Line/Display_LineTypes.h"
-#include "MyVoxel/Foundation/ReferenceCounted.h"
+#include "MyVoxel/Display/Resource/Display_Resource.h"
 
 namespace MyVoxel
 {
 
 // 保存按GL_LINES语义排列的不可变CPU线显示资源，每两个连续顶点组成一个独立线段。
-class Display_LineResource : public Foundation::ReferenceCounted
+class Display_LineResource : public Display_Resource
 {
 public:
     // 根据线段端点序列和统一颜色建立不可变线资源，points必须包含偶数个有限点且至少形成一个线段。
     Display_LineResource(const std::vector<MyMath::Vector3>& points, const Display_Color& color);
 
-    /// 状态判断
+    /// 资源属性
 
+    // 返回线显示资源类型。
+    Display_ResourceKind kind() const override;
     // 判断当前资源是否包含至少一个完整有效线段。
-    bool isValid() const;
+    bool isValid() const override;
+    // 返回全部线段形成的局部轴对齐包围盒。
+    const Bounds3& localBounds() const override;
+    // 返回连续显示顶点数组占用字节数，不包含vector预留空间和对象自身。
+    std::size_t memoryByteSize() const override;
 
-    /// 资源数据
+    /// 线数据
 
     // 返回按线段顺序连续排列的显示顶点。
     const std::vector<Display_LineVertex>& vertices() const;
@@ -33,10 +39,6 @@ public:
     std::size_t vertexCount() const;
     // 返回独立线段数量。
     std::size_t segmentCount() const;
-    // 返回全部线段形成的局部轴对齐包围盒。
-    const Bounds3& localBounds() const;
-    // 返回连续显示顶点数组占用字节数，不包含vector预留空间和对象自身。
-    std::size_t memoryByteSize() const;
 
 protected:
     ~Display_LineResource() override = default;

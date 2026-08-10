@@ -29,12 +29,10 @@ public:
     explicit operator bool() const;
 
     /// 拓扑身份
-
     // 判断两个非空句柄是否引用同一个Topology_TObject，使用方向不参与拓扑身份判断。
     bool isSame(const Topology_Object& other) const;
 
     /// 使用方向
-
     // 返回当前句柄相对于底层共享拓扑实体的使用方向。
     Topology_Orientation orientation() const;
     // 判断当前句柄是否按底层拓扑实体的标准方向使用。

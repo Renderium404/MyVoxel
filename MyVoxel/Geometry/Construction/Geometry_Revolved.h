@@ -11,29 +11,36 @@
 namespace MyVoxel
 {
 
-// 表示由局部XY平面闭合几何轮廓映射到XOZ母线平面并绕局部Z轴完整旋转形成的连续实体几何。
-// 轮廓X对应旋转半径，轮廓Y对应实体局部Z坐标；轮廓必须闭合、具有非零面积并整体位于局部Y轴同一侧。
+// 表示由局部XY平面闭合母线轮廓映射到XOZ截面并绕局部Z轴完整旋转形成的连续实体几何。
+//
+// 母线X对应带符号旋转半径，母线Y对应实体局部Z坐标；母线必须闭合、具有非零面积并整体位于局部Y轴同一侧。
+// 输入Line或Arc允许存在profileTolerance范围内的平面数值误差，内部统一规范化为严格位于局部XY平面的独立曲线资源。
 class Geometry_Revolved : public Geometry_Shape
 {
 public:
-    // 使用有序闭合曲线几何创建完整回转实体，建模层必须传入连续且不跨越局部Y轴的轮廓。
-    Geometry_Revolved(const std::vector<Foundation::RefPtr<const Geometry_Curve> >& profileCurves, double connectionTolerance);
+    // 使用有序闭合曲线几何创建完整回转实体，profileTolerance用于母线平面、连接和边界数值判断。
+    Geometry_Revolved(const std::vector<Foundation::RefPtr<const Geometry_Curve> >& profileCurves, double profileTolerance);
 
-    /// 轮廓几何数据
+    /// 状态判断
 
-    // 返回母线轮廓包含的曲线几何数量。
+    // 判断当前回转几何是否具有完整有效的闭合母线和非退化实体范围。
+    bool isValid() const;
+
+    /// 母线几何数据
+
+    // 返回规范化母线包含的曲线数量。
     std::size_t profileCurveCount() const;
-    // 返回指定编号的母线曲线几何。
+    // 返回指定编号的规范化母线曲线。
     const Geometry_Curve& profileCurve(std::size_t index) const;
-    // 返回母线轮廓持有的全部不可变曲线几何资源。
+    // 返回全部规范化且严格位于局部XY平面的不可变母线曲线资源。
     const std::vector<Foundation::RefPtr<const Geometry_Curve> >& profileCurves() const;
-    // 返回相邻轮廓曲线允许的最大连接距离。
-    double connectionTolerance() const;
-    // 返回母线轮廓在局部XY平面中的轴对齐包围盒。
+    // 返回母线平面、连接和区域查询使用的几何容差。
+    double profileTolerance() const;
+    // 返回规范化母线在局部XY平面中的轴对齐包围盒。
     const Bounds3& profileBounds() const;
-    // 返回母线轮廓精确有符号面积，逆时针为正，顺时针为负。
+    // 返回规范化闭合母线的精确有符号面积，逆时针为正，顺时针为负。
     double profileSignedArea() const;
-    // 返回轮廓X映射到非负旋转半径时使用的方向符号，右侧为1，左侧为-1。
+    // 返回母线X映射到非负旋转半径时使用的方向符号，右侧为1，左侧为-1。
     double radialSign() const;
 
     /// 几何属性
@@ -58,22 +65,24 @@ protected:
     ~Geometry_Revolved() override = default;
 
 private:
-    // 验证轮廓几何并建立回转查询缓存。
+    // 将输入Line和任意坐标系Arc规范化为严格位于当前局部XY平面的独立母线曲线。
+    bool buildCanonicalProfile(const std::vector<Foundation::RefPtr<const Geometry_Curve> >& profileCurves);
+    // 验证规范化母线并建立面积、半径方向和实体包围盒缓存。
     void rebuild();
-    // 判断指定局部XY平面点是否位于母线轮廓区域内部或边界上。
+    // 判断指定局部XY平面点是否位于母线区域内部或边界上。
     bool containsProfilePoint(const MyMath::Vector3& point, double tolerance) const;
-    // 返回指定局部XY平面矩形与母线轮廓区域之间的保守空间关系。
+    // 返回指定局部XY平面矩形与母线区域之间的保守空间关系。
     ShapeRelation classifyProfileBounds(const Bounds3& bounds, double tolerance) const;
     // 使用三维XY范围和Z范围执行回转截面降维分类。
     ShapeRelation classifyRange(const MyMath::Vector3& minimum, const MyMath::Vector3& maximum) const;
 
 private:
-    std::vector<Foundation::RefPtr<const Geometry_Curve> > m_profileCurves; // 按轮廓方向排列的不可变曲线几何资源。
-    double m_connectionTolerance; // 相邻轮廓曲线允许的最大连接距离。
-    Bounds3 m_profileBounds; // 母线轮廓在局部XY平面中的轴对齐包围盒。
-    double m_profileSignedArea; // 母线轮廓精确有符号面积。
-    double m_radialSign; // 轮廓X映射到非负旋转半径时使用的方向符号。
-    bool m_valid; // 当前回转几何是否包含完整有效数据。
+    std::vector<Foundation::RefPtr<const Geometry_Curve> > m_profileCurves; // 严格位于局部XY平面并按轮廓方向排列的规范化母线曲线。
+    double m_profileTolerance; // 母线平面、连接和区域查询使用的几何容差。
+    Bounds3 m_profileBounds; // 规范化母线在局部XY平面中的轴对齐包围盒。
+    double m_profileSignedArea; // 规范化闭合母线的有符号面积。
+    double m_radialSign; // 母线X映射到非负旋转半径时使用的方向符号。
+    bool m_valid; // 当前回转几何是否具有完整有效数据。
 };
 
 }
