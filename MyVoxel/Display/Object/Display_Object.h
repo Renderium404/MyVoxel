@@ -4,7 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
-
+#include <vector>
 #include "MyMath/Matrix4.h"
 #include "MyVoxel/Base/Bounds3.h"
 #include "MyVoxel/Display/Object/Display_ObjectTypes.h"
@@ -77,7 +77,6 @@ public:
     bool visible() const;
     // 返回Line资源使用的期望显示线宽，其他资源类型忽略该值。
     float lineWidth() const;
-
     /// 资源分片
 
     // 返回当前活动资源分片数量。

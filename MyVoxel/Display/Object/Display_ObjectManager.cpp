@@ -24,9 +24,11 @@ Display_ObjectManager::~Display_ObjectManager()
 Display_ObjectId Display_ObjectManager::createObject(Display_ResourceKind resourceKind, Display_ObjectUsage usage)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+
     const Display_ObjectId objectId = allocateObjectId();
     const std::pair<ObjectMap::iterator, bool> inserted =
         m_objects.insert(std::make_pair(objectId, Display_Object(objectId, resourceKind, usage)));
+
     MYVOXEL_REQUIRE_MESSAGE(inserted.second, "Display object manager failed to insert a newly allocated object id.");
     return inserted.second ? objectId : 0;
 }
@@ -41,8 +43,10 @@ Display_ObjectId Display_ObjectManager::createObject(Display_ResourceId resource
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
+
     const Display_ObjectId objectId = allocateObjectId();
     Display_Object objectValue(objectId, resourceValue->kind(), usage);
+
     objectValue.m_partVersions[partId] = 1;
     objectValue.m_parts.insert(std::make_pair(partId, Display_ObjectPart(partId, 1, resourceId, resourceValue)));
 
@@ -72,8 +76,15 @@ Display_Object Display_ObjectManager::object(Display_ObjectId objectId) const
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
+
     const ObjectMap::const_iterator iterator = m_objects.find(objectId);
-    return iterator != m_objects.end() ? iterator->second : Display_Object();
+
+    if (iterator == m_objects.end())
+    {
+        return Display_Object();
+    }
+
+    return iterator->second;
 }
 
 /// 对象状态
@@ -81,6 +92,7 @@ Display_Object Display_ObjectManager::object(Display_ObjectId objectId) const
 bool Display_ObjectManager::setUsage(Display_ObjectId objectId, Display_ObjectUsage usage)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+
     ObjectMap::iterator iterator = m_objects.find(objectId);
 
     if (iterator == m_objects.end())
@@ -88,13 +100,15 @@ bool Display_ObjectManager::setUsage(Display_ObjectId objectId, Display_ObjectUs
         return false;
     }
 
-    if (iterator->second.m_usage == usage)
+    Display_Object& objectValue = iterator->second;
+
+    if (objectValue.m_usage == usage)
     {
         return true;
     }
 
-    iterator->second.m_usage = usage;
-    iterator->second.m_stateVersion = nextVersion(iterator->second.m_stateVersion);
+    objectValue.m_usage = usage;
+    objectValue.m_stateVersion = nextVersion(objectValue.m_stateVersion);
     return true;
 }
 
@@ -106,6 +120,7 @@ bool Display_ObjectManager::setLocalToWorld(Display_ObjectId objectId, const MyM
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
+
     ObjectMap::iterator iterator = m_objects.find(objectId);
 
     if (iterator == m_objects.end())
@@ -113,14 +128,22 @@ bool Display_ObjectManager::setLocalToWorld(Display_ObjectId objectId, const MyM
         return false;
     }
 
-    iterator->second.m_localToWorld = localToWorld;
-    iterator->second.m_stateVersion = nextVersion(iterator->second.m_stateVersion);
+    Display_Object& objectValue = iterator->second;
+
+    if (objectValue.m_localToWorld.isEqualTo(localToWorld, 0.001))
+    {
+        return true;
+    }
+
+    objectValue.m_localToWorld = localToWorld;
+    objectValue.m_stateVersion = nextVersion(objectValue.m_stateVersion);
     return true;
 }
 
 bool Display_ObjectManager::setVisible(Display_ObjectId objectId, bool visible)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+
     ObjectMap::iterator iterator = m_objects.find(objectId);
 
     if (iterator == m_objects.end())
@@ -128,13 +151,15 @@ bool Display_ObjectManager::setVisible(Display_ObjectId objectId, bool visible)
         return false;
     }
 
-    if (iterator->second.m_visible == visible)
+    Display_Object& objectValue = iterator->second;
+
+    if (objectValue.m_visible == visible)
     {
         return true;
     }
 
-    iterator->second.m_visible = visible;
-    iterator->second.m_stateVersion = nextVersion(iterator->second.m_stateVersion);
+    objectValue.m_visible = visible;
+    objectValue.m_stateVersion = nextVersion(objectValue.m_stateVersion);
     return true;
 }
 
@@ -153,6 +178,7 @@ bool Display_ObjectManager::setLineWidth(Display_ObjectId objectId, double width
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
+
     ObjectMap::iterator iterator = m_objects.find(objectId);
 
     if (iterator == m_objects.end() || iterator->second.m_resourceKind != Display_ResourceKind::Line)
@@ -160,13 +186,15 @@ bool Display_ObjectManager::setLineWidth(Display_ObjectId objectId, double width
         return false;
     }
 
-    if (iterator->second.m_lineWidth == targetWidth)
+    Display_Object& objectValue = iterator->second;
+
+    if (objectValue.m_lineWidth == targetWidth)
     {
         return true;
     }
 
-    iterator->second.m_lineWidth = targetWidth;
-    iterator->second.m_stateVersion = nextVersion(iterator->second.m_stateVersion);
+    objectValue.m_lineWidth = targetWidth;
+    objectValue.m_stateVersion = nextVersion(objectValue.m_stateVersion);
     return true;
 }
 
@@ -182,14 +210,21 @@ bool Display_ObjectManager::setPart(Display_ObjectId objectId, Display_ObjectPar
     }
 
     std::lock_guard<std::mutex> lock(m_mutex);
+
     ObjectMap::iterator objectIterator = m_objects.find(objectId);
 
-    if (objectIterator == m_objects.end() || objectIterator->second.m_resourceKind != resourceValue->kind())
+    if (objectIterator == m_objects.end())
     {
         return false;
     }
 
     Display_Object& objectValue = objectIterator->second;
+
+    if (objectValue.m_resourceKind != resourceValue->kind())
+    {
+        return false;
+    }
+
     Display_Object::PartMap::iterator partIterator = objectValue.m_parts.find(partId);
 
     if (partIterator != objectValue.m_parts.end() && partIterator->second.resourceId == resourceId)
@@ -198,6 +233,7 @@ bool Display_ObjectManager::setPart(Display_ObjectId objectId, Display_ObjectPar
     }
 
     const std::uint64_t version = nextVersion(objectValue.partVersion(partId));
+
     objectValue.m_partVersions[partId] = version;
     objectValue.m_parts[partId] = Display_ObjectPart(partId, version, resourceId, resourceValue);
     return true;
@@ -206,6 +242,7 @@ bool Display_ObjectManager::setPart(Display_ObjectId objectId, Display_ObjectPar
 bool Display_ObjectManager::removePart(Display_ObjectId objectId, Display_ObjectPartId partId)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+
     ObjectMap::iterator objectIterator = m_objects.find(objectId);
 
     if (objectIterator == m_objects.end())
@@ -229,6 +266,7 @@ bool Display_ObjectManager::removePart(Display_ObjectId objectId, Display_Object
 bool Display_ObjectManager::clearParts(Display_ObjectId objectId)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+
     ObjectMap::iterator objectIterator = m_objects.find(objectId);
 
     if (objectIterator == m_objects.end())
@@ -277,11 +315,87 @@ std::size_t Display_ObjectManager::objectCount() const
 std::size_t Display_ObjectManager::partCount() const
 {
     std::lock_guard<std::mutex> lock(m_mutex);
+
     std::size_t result = 0;
 
     for (ObjectMap::const_iterator iterator = m_objects.begin(); iterator != m_objects.end(); ++iterator)
     {
-        result += iterator->second.partCount();
+        result += iterator->second.m_parts.size();
+    }
+
+    return result;
+}
+
+/// 快照
+
+Display_ObjectSnapshot Display_ObjectManager::snapshot(Display_ObjectId objectId) const
+{
+    if (objectId == 0)
+    {
+        return Display_ObjectSnapshot();
+    }
+
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    const ObjectMap::const_iterator objectIterator = m_objects.find(objectId);
+
+    if (objectIterator == m_objects.end())
+    {
+        return Display_ObjectSnapshot();
+    }
+
+    const Display_Object& objectValue = objectIterator->second;
+
+    Display_ObjectSnapshot result;
+    result.objectId = objectValue.m_objectId;
+    result.resourceKind = objectValue.m_resourceKind;
+    result.usage = objectValue.m_usage;
+    result.stateVersion = objectValue.m_stateVersion;
+    result.localToWorld = objectValue.m_localToWorld;
+    result.visible = objectValue.m_visible;
+    result.lineWidth = objectValue.m_lineWidth;
+    result.parts.reserve(objectValue.m_parts.size());
+
+    for (Display_Object::PartMap::const_iterator iterator = objectValue.m_parts.begin(); iterator != objectValue.m_parts.end(); ++iterator)
+    {
+        const Display_ObjectPart& partValue = iterator->second;
+        result.parts.push_back(Display_ObjectPartSnapshot(partValue.partId, partValue.version, partValue.resourceId, partValue.resource));
+    }
+
+    MYVOXEL_ASSERT_MESSAGE(result.isValid(), "Display object manager produced an invalid object snapshot.");
+    return result;
+}
+
+std::vector<Display_ObjectSnapshot> Display_ObjectManager::snapshots() const
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+
+    std::vector<Display_ObjectSnapshot> result;
+    result.reserve(m_objects.size());
+
+    for (ObjectMap::const_iterator objectIterator = m_objects.begin(); objectIterator != m_objects.end(); ++objectIterator)
+    {
+        const Display_Object& objectValue = objectIterator->second;
+
+        Display_ObjectSnapshot snapshotValue;
+        snapshotValue.objectId = objectValue.m_objectId;
+        snapshotValue.resourceKind = objectValue.m_resourceKind;
+        snapshotValue.usage = objectValue.m_usage;
+        snapshotValue.stateVersion = objectValue.m_stateVersion;
+        snapshotValue.localToWorld = objectValue.m_localToWorld;
+        snapshotValue.visible = objectValue.m_visible;
+        snapshotValue.lineWidth = objectValue.m_lineWidth;
+        snapshotValue.parts.reserve(objectValue.m_parts.size());
+
+        for (Display_Object::PartMap::const_iterator partIterator = objectValue.m_parts.begin(); partIterator != objectValue.m_parts.end(); ++partIterator)
+        {
+            const Display_ObjectPart& partValue = partIterator->second;
+            snapshotValue.parts.push_back(
+                Display_ObjectPartSnapshot(partValue.partId, partValue.version, partValue.resourceId, partValue.resource));
+        }
+
+        MYVOXEL_ASSERT_MESSAGE(snapshotValue.isValid(), "Display object manager produced an invalid object snapshot.");
+        result.push_back(snapshotValue);
     }
 
     return result;
@@ -292,6 +406,11 @@ std::size_t Display_ObjectManager::partCount() const
 Display_ObjectId Display_ObjectManager::allocateObjectId()
 {
     MYVOXEL_REQUIRE_MESSAGE(m_nextObjectId != 0, "Display object id space has been exhausted.");
+
+    if (m_nextObjectId == 0)
+    {
+        return 0;
+    }
 
     const Display_ObjectId objectId = m_nextObjectId;
 
@@ -311,6 +430,12 @@ std::uint64_t Display_ObjectManager::nextVersion(std::uint64_t currentVersion)
 {
     MYVOXEL_REQUIRE_MESSAGE(currentVersion != (std::numeric_limits<std::uint64_t>::max)(),
                             "Display object version space has been exhausted.");
+
+    if (currentVersion == (std::numeric_limits<std::uint64_t>::max)())
+    {
+        return 0;
+    }
+
     return currentVersion + 1;
 }
 

@@ -46,7 +46,12 @@ Display_MeshResource::Display_MeshResource(const Mesh& mesh)
     MYVOXEL_ASSERT_MESSAGE(m_valid, "Display mesh resource construction produced inconsistent data.");
 }
 
-/// 状态判断
+/// 资源属性
+
+Display_ResourceKind Display_MeshResource::kind() const
+{
+    return Display_ResourceKind::Mesh;
+}
 
 bool Display_MeshResource::isValid() const
 {

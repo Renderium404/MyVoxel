@@ -198,7 +198,8 @@ MyVoxel::Mesh buildConeFrustum(const MyVoxel::Geometry_ConeFrustum& geometry, co
     const double minimumZ = -height * 0.5;
     const double maximumZ = height * 0.5;
     const unsigned int segmentCount = options.circularSegmentCount;
-    const std::size_t sideTriangleCount = bottomRadius > 0.0 && topRadius > 0.0 ? static_cast<std::size_t>(segmentCount) * 2 : static_cast<std::size_t>(segmentCount);
+    const std::size_t sideTriangleCount = bottomRadius > 0.0 && topRadius > 0.0 ? static_cast<std::size_t>(segmentCount) * 2 :
+                                                                                 static_cast<std::size_t>(segmentCount);
     const std::size_t capTriangleCount = (bottomRadius > 0.0 ? static_cast<std::size_t>(segmentCount) : 0) +
                                          (topRadius > 0.0 ? static_cast<std::size_t>(segmentCount) : 0);
     const std::size_t triangleCount = sideTriangleCount + capTriangleCount;
@@ -288,7 +289,7 @@ void buildRevolvedProfilePoints(const MyVoxel::Geometry_Revolved& geometry, cons
     }
 
     MYVOXEL_ASSERT_MESSAGE(points.size() >= 2, "Revolved meshing profile discretization produced too few points.");
-    MYVOXEL_ASSERT_MESSAGE(points.front().isEqualTo(points.back(), geometry.connectionTolerance()),
+    MYVOXEL_ASSERT_MESSAGE(points.front().isEqualTo(points.back(), geometry.profileTolerance()),
                            "Revolved meshing profile discretization must remain closed.");
 }
 
@@ -299,7 +300,7 @@ double revolvedRadius(const MyVoxel::Geometry_Revolved& geometry, double profile
 
     if (radius < 0.0)
     {
-        MYVOXEL_ASSERT_MESSAGE(radius >= -geometry.connectionTolerance(),
+        MYVOXEL_ASSERT_MESSAGE(radius >= -geometry.profileTolerance(),
                                "Revolved profile point lies beyond the accepted rotation-axis tolerance.");
         radius = 0.0;
     }

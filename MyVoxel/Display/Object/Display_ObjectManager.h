@@ -5,10 +5,13 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
+#include <vector>
+
 
 #include "MyMath/Matrix4.h"
 #include "MyVoxel/Display/Object/Display_Object.h"
 #include "MyVoxel/Display/Object/Display_ObjectTypes.h"
+#include "MyVoxel/Display/Object/Display_ObjectSnapshot.h"
 #include "MyVoxel/Display/Resource/Display_ResourceManager.h"
 
 namespace MyVoxel
@@ -77,7 +80,12 @@ public:
     std::size_t objectCount() const;
     // 返回全部显示对象当前活动资源分片数量。
     std::size_t partCount() const;
+    /// 快照
 
+    // 返回指定显示对象当前完整不可变快照，对象不存在时返回无效快照。
+    Display_ObjectSnapshot snapshot(Display_ObjectId objectId) const;
+    // 返回当前全部显示对象的完整不可变快照。
+    std::vector<Display_ObjectSnapshot> snapshots() const;
 private:
     typedef std::map<Display_ObjectId, Display_Object> ObjectMap;
 

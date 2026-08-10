@@ -6,26 +6,8 @@
 
 #include "MyVoxel/Display/Base/Display_Color.h"
 #include "MyVoxel/Display/Base/Display_Normal.h"
-
 namespace MyVoxel
 {
-
-typedef std::uint64_t Display_MeshObjectId;
-typedef std::uint64_t Display_MeshPartId;
-
-// 标识显示网格对象的预期GPU更新频率。
-enum class Display_MeshUsage
-{
-    Static, // 网格分片创建后很少替换。
-    Dynamic // 网格分片会持续执行全量或增量替换。
-};
-
-// 标识一次显示网格分片更新是替换资源还是删除资源。
-enum class Display_MeshPartOperation
-{
-    Replace,
-    Remove
-};
 
 // 保存一个可直接上传到显示后端的逐角点网格顶点。
 //

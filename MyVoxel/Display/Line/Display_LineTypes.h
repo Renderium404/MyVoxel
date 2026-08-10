@@ -1,23 +1,10 @@
 #ifndef MYVOXEL_DISPLAY_LINE_DISPLAY_LINETYPES_H
 #define MYVOXEL_DISPLAY_LINE_DISPLAY_LINETYPES_H
 
-#include <cstddef>
-#include <cstdint>
-
 #include "MyVoxel/Display/Base/Display_Color.h"
 
 namespace MyVoxel
 {
-
-typedef std::uint64_t Display_LineObjectId;
-typedef std::uint64_t Display_LinePartId;
-
-// 标识线对象GPU缓冲的预期更新频率。
-enum class Display_LineUsage
-{
-    Static,
-    Dynamic
-};
 
 // 保存一个可直接上传到显示后端的线顶点。
 //

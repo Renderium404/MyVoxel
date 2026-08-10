@@ -4,8 +4,8 @@
 #include "MyVoxel/Display/Base/Display_Color.h"
 #include "MyVoxel/Geometry/Shape/Geometry_Shape.h"
 #include "MyVoxel/Mesh/Mesh.h"
-#include "MyVoxel/Topology/Shape.h"
-#include "MyVoxel/Topology/Topology_Shape.h"
+#include "MyVoxel/Instance/Shape.h"
+#include "MyVoxel/Topology/Shape/Topology_Shape.h"
 
 namespace MyVoxel
 {

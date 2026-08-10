@@ -79,7 +79,12 @@ Display_Object::Display_Object(Display_ObjectId objectId, Display_ResourceKind r
 
 bool Display_Object::isValid() const
 {
-    if (m_objectId == 0 || m_stateVersion == 0 || !isInvertibleAffine(m_localToWorld) || !isValidLineWidth(m_lineWidth))
+    if (m_objectId == 0 || m_stateVersion == 0 || !isInvertibleAffine(m_localToWorld))
+    {
+        return false;
+    }
+
+    if (m_resourceKind == Display_ResourceKind::Line && !isValidLineWidth(m_lineWidth))
     {
         return false;
     }
@@ -154,7 +159,6 @@ float Display_Object::lineWidth() const
 {
     return m_lineWidth;
 }
-
 /// 资源分片
 
 std::size_t Display_Object::partCount() const

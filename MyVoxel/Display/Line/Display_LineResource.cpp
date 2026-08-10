@@ -35,7 +35,14 @@ Display_LineResource::Display_LineResource(const std::vector<MyMath::Vector3>& p
     MYVOXEL_ASSERT_MESSAGE(m_valid, "Display line resource construction produced inconsistent data.");
 }
 
-/// 状态判断
+
+
+/// 资源属性
+
+Display_ResourceKind Display_LineResource::kind() const
+{
+    return Display_ResourceKind::Line;
+}
 
 bool Display_LineResource::isValid() const
 {
