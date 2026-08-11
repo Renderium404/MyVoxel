@@ -134,9 +134,9 @@ private:
     void appendTriangleIndices(std::uint32_t index0, std::uint32_t index1, std::uint32_t index2);
 
 private:
-    std::vector<MeshVertex> m_vertices; // 当前网格的全部局部空间顶点。
-    std::vector<std::uint32_t> m_indices; // 当前网格的全部三角形索引。
-    std::vector<Display_Color> m_triangleColors; // 可选逐三角形显示颜色，必须为空或与三角形一一对应。
+    std::vector<MeshVertex>     m_vertices; // 当前网格的全部局部空间顶点。
+    std::vector<std::uint32_t>  m_indices; // 当前网格的全部三角形索引。
+    std::vector<Display_Color>  m_triangleColors; // 可选逐三角形显示颜色，必须为空或与三角形一一对应。
 };
 
 }
