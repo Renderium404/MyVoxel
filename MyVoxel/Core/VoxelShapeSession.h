@@ -12,97 +12,115 @@ namespace MyVoxel
 {
 
 class VoxelCellAddress;
+class VoxelFeatureSet;
 class VoxelGrid;
 class VoxelShape;
 class VoxelTree;
+enum class VoxelFeatureState;
 
-// 在一次连续修改过程中独占VoxelShape共享数据，并统一执行跨根体素修改。
+// 在一次连续修改过程中独占VoxelShape共享数据，并统一修改TSDF森林、显式FeatureSet和记录场变化区域。
 //
-// 创建会话时立即分离VoxelShape共享数据，后续修改不会重复进入Shape级写时复制。
-// 各VoxelTree仍在首次创建编辑器时按根树粒度执行节点池写时复制。
-// 每个成功修改原语都会同步写入当前VoxelChangeSet。
-// 会话不自动合并节点，也不在析构时执行任何隐式修改。
-// 会话存续期间不得复制、赋值或通过其他入口修改目标VoxelShape。
+// 当前VoxelChangeSet仍只记录TSDF Field/Structure变化；Feature变化记录将在切削Feature阶段单独扩展。
+// 因此setFeatures/clearFeatures只修改与TSDF共享同一COW边界的FeatureSet，不写入现有VoxelChangeSet。
 class VoxelShapeSession
 {
 public:
-    // 为指定有效体素体创建修改会话，并使用固定层级跟踪材料变化区域。
+    // 为指定有效体素体创建修改会话，并使用固定层级跟踪距离场变化区域。
     VoxelShapeSession(VoxelShape& shape, VoxelLevel changeTrackingLevel);
+
     VoxelShapeSession(const VoxelShapeSession& other) = delete;
     VoxelShapeSession& operator=(const VoxelShapeSession& other) = delete;
-    // 移动修改会话并转移目标体素体绑定关系和变化记录。
     VoxelShapeSession(VoxelShapeSession&& other);
-    // 移动修改会话并转移目标体素体绑定关系和变化记录。
     VoxelShapeSession& operator=(VoxelShapeSession&& other);
-
     ~VoxelShapeSession() = default;
 
     /// 会话状态
-    // 判断当前会话是否已经执行过实际修改。
+
     bool hasChanges() const;
-    // 返回当前尚未取走的只读变化记录。
     const VoxelChangeSet& changes() const;
-    // 取走当前变化记录，并继续使用相同跟踪层级收集后续修改。
     VoxelChangeSet takeChanges();
 
     /// 体素空间
-    // 返回目标体素体使用的只读体素网格。
+
     const VoxelGrid& grid() const;
-    // 判断指定体素地址是否位于目标体素体允许的层级范围内。
+    // 返回目标体素体固定使用的正截断背景距离B。
+    float backgroundDistance() const;
     bool supportsAddress(const VoxelCellAddress& address) const;
 
-    /// 体素状态
-    // 返回指定地址对应的逻辑体素状态。
+    /// 体素与距离状态
+
     VoxelState state(const VoxelCellAddress& address) const;
-    // 检查指定地址是否具有独立的显式节点表示。
     bool hasNode(const VoxelCellAddress& address) const;
-    // 将指定地址设置为空或材料状态，不自动合并任何祖先节点。
+    // 返回最高采样层级指定地址的TSDF距离。
+    float distance(const VoxelCellAddress& address) const;
+    // 将指定逻辑区域设置为空侧+B或材料侧-B，实际改变场时记录FieldChange。
     bool setState(const VoxelCellAddress& address, VoxelState state);
+    // 修改最高采样层级指定地址的有限TSDF距离，并同步MaskBlock与FieldChange。
+    bool setDistance(const VoxelCellAddress& address, float distance);
 
     /// 体素结构
-    // 将指定材料体素细分为八个材料子体素。
+
+    // 将指定现有终止区域无损细分，不改变距离场。
     bool split(const VoxelCellAddress& address);
-    // 在八个直接子体素状态一致时只合并指定体素，不继续合并任何祖先节点。
+    // 在指定物理节点可以无损折叠时执行一次局部合并，不改变距离场。
     bool merge(const VoxelCellAddress& address);
+    // 对指定根执行完整bottom-up TSDF裁剪，不改变距离场。
+    bool pruneTree(const VoxelCellIndex& rootIndex);
+    // 对全部根执行完整bottom-up TSDF裁剪，返回发生结构变化的根数量。
+    std::size_t prune();
 
     /// 独立脏区构建
-    // 为指定Root创建与当前会话跟踪层级一致的空材料变化区域。
+
+    // 为指定Root创建与当前会话跟踪层级一致的空场变化区域。
     VoxelChangeSet::DirtyCellRegion createDirtyCellRegion(const VoxelCellIndex& rootIndex) const;
-    // 将指定逻辑体素覆盖区域记录到由当前会话创建的材料变化区域。
-    void recordMaterialChange(VoxelChangeSet::DirtyCellRegion& dirtyRegion,const VoxelCellAddress& address) const;
+    // 将指定逻辑体素覆盖区域记录到由当前会话创建的场变化区域，不直接修改Shape。
+    void recordFieldChange(VoxelChangeSet::DirtyCellRegion& dirtyRegion, const VoxelCellAddress& address) const;
+    // 兼容旧Operation调用，语义等同recordFieldChange；旧调用迁移完成后可删除。
+    void recordMaterialChange(VoxelChangeSet::DirtyCellRegion& dirtyRegion, const VoxelCellAddress& address) const;
 
     /// 根树操作
-    // 返回指定索引对应的只读根树，不存在时返回空指针。
+
     const VoxelTree* tree(const VoxelCellIndex& rootIndex) const;
-    // 使用指定非空根树新增或替换当前根树，并将该根记录为完整变化。
+    // 插入的显式LeafBlock必须已经使用当前Session相同的backgroundDistance。
     void setTree(const VoxelCellIndex& rootIndex, const VoxelTree& tree);
-    // 移动指定非空根树新增或替换当前根树，并将该根记录为完整变化。
     void setTree(const VoxelCellIndex& rootIndex, VoxelTree&& tree);
-    // 使用指定非空根树替换当前Root，并提交调用者已经计算的精细材料变化区域。
-    void setTree( const VoxelCellIndex& rootIndex, const VoxelTree& tree, const VoxelChangeSet::DirtyCellRegion& dirtyRegion);
-    // 移动指定非空根树替换当前Root，并提交调用者已经计算的精细材料变化区域。
-    void setTree( const VoxelCellIndex& rootIndex, VoxelTree&& tree, const VoxelChangeSet::DirtyCellRegion& dirtyRegion);
-    // 删除指定根树，并在实际删除时将该根记录为完整变化。
+    void setTree(const VoxelCellIndex& rootIndex, const VoxelTree& tree, const VoxelChangeSet::DirtyCellRegion& dirtyRegion);
+    void setTree(const VoxelCellIndex& rootIndex, VoxelTree&& tree, const VoxelChangeSet::DirtyCellRegion& dirtyRegion);
     bool eraseTree(const VoxelCellIndex& rootIndex);
-    // 删除指定根树，并在实际删除时提交调用者已经计算的精细材料变化区域。
-    bool eraseTree(const VoxelCellIndex& rootIndex,const VoxelChangeSet::DirtyCellRegion& dirtyRegion);
-    // 将全部根树所有权移动追加到指定数组，清空当前体素体并记录全部根变化。
+    bool eraseTree(const VoxelCellIndex& rootIndex, const VoxelChangeSet::DirtyCellRegion& dirtyRegion);
     void moveTreesTo(std::vector<VoxelForest::TreeEntry>& trees);
 
+    /// 显式表面特征
+
+    // 返回当前独占VoxelShape中的只读FeatureSet。
+    const VoxelFeatureSet& features() const;
+    // 返回当前显式表面特征的完整性状态。
+    VoxelFeatureState featureState() const;
+    // 判断当前FeatureSet是否已知完整。
+    bool hasCompleteFeatures() const;
+    // 使用完整有效FeatureSet替换当前显式特征并标记Complete；本阶段不写入VoxelChangeSet。
+    void setFeatures(const VoxelFeatureSet& features);
+    // 清空全部显式表面特征并标记Complete，表示当前实体确认没有显式特征。
+    bool clearFeatures();
+    // 清空可能过期的显式特征并标记Unavailable，表示当前TSDF仍有效但Feature需要重新建立。
+    void invalidateFeatures();
+
     /// 体素数据
-    // 返回当前会话使用的只读稀疏体素森林。
+
     const VoxelForest& forest() const;
-    // 返回当前保存的第0层根树数量。
     std::size_t rootCount() const;
-    // 判断当前是否不包含任何显式根树。
     bool isEmpty() const;
-    // 清空全部显式根树，并将删除的每个根记录为完整变化。
+    // 清空TSDF森林和FeatureSet；返回任一部分实际发生改变。
     bool clear();
 
 private:
-    VoxelShape* m_shape; // 当前会话绑定的目标体素体。
-    VoxelForest* m_forest; // 当前会话独占并修改的稀疏体素森林。
-    VoxelChangeSet m_changes; // 当前会话尚未取走的只读变化记录。
+    // 当TSDF实际发生场变化而调用方没有同步提供新Feature时使显式特征失效。
+    void invalidateFeaturesForFieldChange();
+
+private:
+    VoxelShape* m_shape; // 当前会话绑定并独占共享数据的目标体素体。
+    VoxelForest* m_forest; // 当前会话独占并修改的TSDF森林。
+    VoxelChangeSet m_changes; // 当前会话尚未取走的场和结构变化记录。
 };
 
 }

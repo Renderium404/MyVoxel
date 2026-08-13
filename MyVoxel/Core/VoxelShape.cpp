@@ -1,27 +1,24 @@
 #include "VoxelShape.h"
 
+#include <cmath>
+
 #include "MyVoxel/Foundation/Diagnostic.h"
 
 namespace
 {
 
-const MyVoxel::VoxelLevel MinimumVolumeFieldSampleLevel = static_cast<MyVoxel::VoxelLevel>(2); // 一个64样本VolumeBlock覆盖连续两级细分，距离场采样层级至少为第2层。
-
-// 判断指定体素网格是否能够建立两级展开的64样本距离场。
-bool gridSupportsVolumeField(const MyVoxel::VoxelGrid& grid)
+// 判断TSDF固定背景距离是否为有限正值。
+bool isValidBackgroundDistance(float backgroundDistance)
 {
-    return grid.isValid() && grid.maximumLevel() >= MinimumVolumeFieldSampleLevel;
+    return std::isfinite(static_cast<double>(backgroundDistance)) && backgroundDistance > 0.0f;
 }
 
-// 为支持距离场的体素网格创建与最高层对齐的全失效距离场。
-std::unique_ptr<MyVoxel::VolumeField> createVolumeField(const MyVoxel::VoxelGrid& grid)
+// 旧构造接口默认使用一个最高层体素边长作为截断背景距离，避免破坏现有调用点；正式建模可通过显式构造指定B。
+float defaultBackgroundDistance(const MyVoxel::VoxelGrid& grid)
 {
-    if (!gridSupportsVolumeField(grid))
-    {
-        return std::unique_ptr<MyVoxel::VolumeField>();
-    }
-
-    return std::unique_ptr<MyVoxel::VolumeField>(new MyVoxel::VolumeField(grid.maximumLevel()));
+    const float result = static_cast<float>(grid.minimumCellEdgeLength());
+    MYVOXEL_ASSERT_MESSAGE(isValidBackgroundDistance(result), "VoxelGrid minimum cell edge length must be representable as a positive float TSDF background distance.");
+    return result;
 }
 
 }
@@ -29,46 +26,71 @@ std::unique_ptr<MyVoxel::VolumeField> createVolumeField(const MyVoxel::VoxelGrid
 namespace MyVoxel
 {
 
-VoxelShape::SharedData::SharedData(const VoxelGrid& gridValue)
+VoxelShape::SharedData::SharedData(const VoxelGrid& gridValue, float backgroundDistanceValue)
     : grid(gridValue)
-    , forest()
-    , volumeField()
+    , forest(backgroundDistanceValue)
+    , features()
+    , featureState(VoxelFeatureState::Complete)
 {
     MYVOXEL_ASSERT_MESSAGE(grid.isValid(), "VoxelShape requires a valid VoxelGrid.");
-    volumeField = createVolumeField(grid);
+    MYVOXEL_ASSERT_MESSAGE(forest.isValid(), "VoxelShape requires a valid TSDF VoxelForest.");
+    MYVOXEL_ASSERT_MESSAGE(features.isValid(), "VoxelShape requires a valid initial FeatureSet.");
 }
 
 VoxelShape::SharedData::SharedData(const SharedData& other)
     : grid(other.grid)
     , forest(other.forest)
-    , volumeField()
+    , features(other.features)
+    , featureState(other.featureState)
 {
     MYVOXEL_ASSERT_MESSAGE(grid.isValid(), "Copied VoxelShape data must contain a valid VoxelGrid.");
-    volumeField = createVolumeField(grid);
+    MYVOXEL_ASSERT_MESSAGE(forest.isValid(), "Copied VoxelShape data must contain a valid TSDF VoxelForest.");
+    MYVOXEL_ASSERT_MESSAGE(features.isValid(), "Copied VoxelShape data must contain a valid FeatureSet.");
 }
 
 VoxelShape::VoxelShape()
-    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(1.0, BaseVoxelLevel)))
+    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(1.0, BaseVoxelLevel), 1.0f))
     , m_transform(MyMath::Matrix4::identity())
 {
 }
 
 VoxelShape::VoxelShape(const VoxelGrid& grid)
-    : m_data(Foundation::makeRef<SharedData>(grid))
+    : m_data(Foundation::makeRef<SharedData>(grid, defaultBackgroundDistance(grid)))
+    , m_transform(MyMath::Matrix4::identity())
+{
+    MYVOXEL_ASSERT_MESSAGE(isValid(), "VoxelShape parameters must define a valid voxel shape.");
+}
+
+VoxelShape::VoxelShape(const VoxelGrid& grid, float backgroundDistanceValue)
+    : m_data(Foundation::makeRef<SharedData>(grid, backgroundDistanceValue))
     , m_transform(MyMath::Matrix4::identity())
 {
     MYVOXEL_ASSERT_MESSAGE(isValid(), "VoxelShape parameters must define a valid voxel shape.");
 }
 
 VoxelShape::VoxelShape(double baseCellEdgeLength, VoxelLevel maximumLevel)
-    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(baseCellEdgeLength, maximumLevel)))
+    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(baseCellEdgeLength, maximumLevel), defaultBackgroundDistance(VoxelGrid(baseCellEdgeLength, maximumLevel))))
+    , m_transform(MyMath::Matrix4::identity())
+{
+    MYVOXEL_ASSERT_MESSAGE(isValid(), "VoxelShape parameters must define a valid voxel shape.");
+}
+
+VoxelShape::VoxelShape(double baseCellEdgeLength, VoxelLevel maximumLevel, float backgroundDistanceValue)
+    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(baseCellEdgeLength, maximumLevel), backgroundDistanceValue))
     , m_transform(MyMath::Matrix4::identity())
 {
     MYVOXEL_ASSERT_MESSAGE(isValid(), "VoxelShape parameters must define a valid voxel shape.");
 }
 
 VoxelShape::VoxelShape(const MyMath::Vector3& origin, double baseCellEdgeLength, VoxelLevel maximumLevel)
-    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(origin, baseCellEdgeLength, maximumLevel)))
+    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(origin, baseCellEdgeLength, maximumLevel), defaultBackgroundDistance(VoxelGrid(origin, baseCellEdgeLength, maximumLevel))))
+    , m_transform(MyMath::Matrix4::identity())
+{
+    MYVOXEL_ASSERT_MESSAGE(isValid(), "VoxelShape parameters must define a valid voxel shape.");
+}
+
+VoxelShape::VoxelShape(const MyMath::Vector3& origin, double baseCellEdgeLength, VoxelLevel maximumLevel, float backgroundDistanceValue)
+    : m_data(Foundation::makeRef<SharedData>(VoxelGrid(origin, baseCellEdgeLength, maximumLevel), backgroundDistanceValue))
     , m_transform(MyMath::Matrix4::identity())
 {
     MYVOXEL_ASSERT_MESSAGE(isValid(), "VoxelShape parameters must define a valid voxel shape.");
@@ -78,20 +100,8 @@ VoxelShape::VoxelShape(const MyMath::Vector3& origin, double baseCellEdgeLength,
 
 bool VoxelShape::isValid() const
 {
-    if (!m_data || !m_data->grid.isValid() || !m_transform.isAffine() || !m_transform.isInvertible())
-    {
-        return false;
-    }
-
-    const bool fieldSupported = gridSupportsVolumeField(m_data->grid);
-
-    if (fieldSupported != static_cast<bool>(m_data->volumeField))
-    {
-        return false;
-    }
-
-    return !m_data->volumeField ||
-           (m_data->volumeField->isValid() && m_data->volumeField->sampleLevel() == m_data->grid.maximumLevel());
+    return m_data && m_data->grid.isValid() && m_data->forest.isValid() && m_data->features.isValid() &&
+           m_transform.isAffine() && m_transform.isInvertible();
 }
 
 bool VoxelShape::isEmpty() const
@@ -108,8 +118,7 @@ bool VoxelShape::isDataShared() const
 
 bool VoxelShape::sharesDataWith(const VoxelShape& other) const
 {
-    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
-    MYVOXEL_ASSERT_MESSAGE(other.m_data, "Other VoxelShape shared data must not be null.");
+    MYVOXEL_ASSERT_MESSAGE(m_data && other.m_data, "VoxelShape shared data must not be null.");
     return m_data.get() == other.m_data.get();
 }
 
@@ -121,12 +130,18 @@ const VoxelGrid& VoxelShape::grid() const
     return m_data->grid;
 }
 
+float VoxelShape::backgroundDistance() const
+{
+    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
+    return m_data->forest.backgroundDistance();
+}
+
 bool VoxelShape::supportsAddress(const VoxelCellAddress& address) const
 {
     return m_data && address.level <= m_data->grid.maximumLevel();
 }
 
-/// 体素状态
+/// 体素与距离状态
 
 VoxelState VoxelShape::state(const VoxelCellAddress& address) const
 {
@@ -140,6 +155,14 @@ bool VoxelShape::hasNode(const VoxelCellAddress& address) const
     MYVOXEL_ASSERT_MESSAGE(isValid(), "Cannot query an invalid VoxelShape.");
     MYVOXEL_ASSERT_MESSAGE(supportsAddress(address), "Voxel address exceeds the shape maximum level.");
     return m_data->forest.hasNode(address);
+}
+
+float VoxelShape::distance(const VoxelCellAddress& address) const
+{
+    MYVOXEL_ASSERT_MESSAGE(isValid(), "Cannot query an invalid VoxelShape.");
+    MYVOXEL_ASSERT_MESSAGE(supportsAddress(address), "Voxel address exceeds the shape maximum level.");
+    MYVOXEL_ASSERT_MESSAGE(address.level == grid().maximumLevel(), "VoxelShape distance queries require the highest sampling level.");
+    return m_data->forest.distance(address);
 }
 
 /// 修改入口
@@ -165,32 +188,23 @@ std::size_t VoxelShape::rootCount() const
     return m_data->forest.rootCount();
 }
 
-/// 距离场资源
+/// 显式表面特征
 
-bool VoxelShape::supportsVolumeField() const
+const VoxelFeatureSet& VoxelShape::features() const
 {
-    return m_data && gridSupportsVolumeField(m_data->grid);
+    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
+    return m_data->features;
 }
 
-const VolumeField* VoxelShape::volumeField() const
+VoxelFeatureState VoxelShape::featureState() const
 {
-    MYVOXEL_ASSERT_MESSAGE(isValid(), "Cannot query the distance field of an invalid VoxelShape.");
-    return m_data->volumeField.get();
+    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
+    return m_data->featureState;
 }
 
-VolumeField* VoxelShape::editVolumeField()
+bool VoxelShape::hasCompleteFeatures() const
 {
-    MYVOXEL_ASSERT_MESSAGE(isValid(), "Cannot edit the distance field of an invalid VoxelShape.");
-
-    if (!supportsVolumeField())
-    {
-        return nullptr;
-    }
-
-    detach();
-
-    MYVOXEL_ASSERT_MESSAGE(m_data->volumeField.get() != nullptr, "Supported VoxelShape must contain a VolumeField resource.");
-    return m_data->volumeField.get();
+    return featureState() == VoxelFeatureState::Complete;
 }
 
 /// 空间变换
@@ -200,11 +214,11 @@ const MyMath::Matrix4& VoxelShape::transform() const
     return m_transform;
 }
 
-void VoxelShape::setTransform(const MyMath::Matrix4& transform)
+void VoxelShape::setTransform(const MyMath::Matrix4& transformValue)
 {
-    MYVOXEL_ASSERT_MESSAGE(transform.isAffine(), "VoxelShape transform must be affine.");
-    MYVOXEL_ASSERT_MESSAGE(transform.isInvertible(), "VoxelShape transform must be invertible.");
-    m_transform = transform;
+    MYVOXEL_ASSERT_MESSAGE(transformValue.isAffine(), "VoxelShape transform must be affine.");
+    MYVOXEL_ASSERT_MESSAGE(transformValue.isInvertible(), "VoxelShape transform must be invertible.");
+    m_transform = transformValue;
 }
 
 void VoxelShape::resetTransform()
@@ -224,21 +238,7 @@ void VoxelShape::detach()
     }
 
     m_data = Foundation::makeRef<SharedData>(*m_data);
-
     MYVOXEL_ASSERT_MESSAGE(m_data->referenceCount() == 1, "Detached VoxelShape data must be exclusively owned.");
-    MYVOXEL_ASSERT_MESSAGE(!m_data->volumeField || m_data->volumeField->isCompletelyDirty(),
-                           "Detached VoxelShape distance field must require a complete rebuild.");
-}
-
-void VoxelShape::invalidateVolumeField()
-{
-    MYVOXEL_ASSERT_MESSAGE(m_data, "VoxelShape shared data must not be null.");
-    MYVOXEL_ASSERT_MESSAGE(m_data->referenceCount() == 1, "VoxelShape distance invalidation requires exclusively owned shared data.");
-
-    if (m_data->volumeField)
-    {
-        m_data->volumeField->markAllDirty();
-    }
 }
 
 }

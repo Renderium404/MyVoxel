@@ -306,7 +306,7 @@ void VoxelChangeSet::DirtyCellRegion::appendChangedCellIndices(
 
 /// 内部修改
 
-void VoxelChangeSet::DirtyCellRegion::recordMaterialChange(
+void VoxelChangeSet::DirtyCellRegion::recordFieldChange(
     const VoxelCellAddress& address)
 {
     MYVOXEL_ASSERT_MESSAGE(
@@ -642,12 +642,12 @@ void VoxelChangeSet::recordStructureChange(
         rootCellAddress(address).index);
 }
 
-void VoxelChangeSet::recordMaterialChange(const VoxelCellAddress& address)
+void VoxelChangeSet::recordFieldChange(const VoxelCellAddress& address)
 {
     const VoxelCellIndex rootIndex =rootCellAddress(address).index;
 
     m_modifiedRootIndices.insert(rootIndex);
-    ensureDirtyRegion(rootIndex).recordMaterialChange(address);
+    ensureDirtyRegion(rootIndex).recordFieldChange(address);
 }
 
 void VoxelChangeSet::recordFullRootChange(const VoxelCellIndex& rootIndex)

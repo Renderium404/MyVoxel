@@ -341,7 +341,7 @@ VoxelChangeSet
 
 ### 负责
 
-- 从 `storageMask` 和 `leafMask` 解码四种物理状态；
+- 从 `mChildMask` 和 `mValueMask` 解码四种物理状态；
 - 批量计算 Empty、Material、Branch 和 MaskLeaf 位置；
 - 判断普通节点块是否可折叠；
 - 统计和遍历八位掩码；
@@ -358,11 +358,11 @@ VoxelChangeSet
 
 ---
 
-## 4.7 `VoxelLeafMask`
+## 4.7 `VoxelmValueMask`
 
 ### 定位
 
-`VoxelLeafMask` 是 `VoxelLeafBlock` 的内部 64 位材料编码和批量位运算工具。
+`VoxelmValueMask` 是 `VoxelLeafBlock` 的内部 64 位材料编码和批量位运算工具。
 
 ### 负责
 

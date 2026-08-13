@@ -5,7 +5,7 @@
 
 #include "MyVoxel/Core/Change/VoxelChangeSet.h"
 #include "MyVoxel/Core/VoxelShape.h"
-#include "MyVoxel/Geometry/ShapeInstance.h"
+#include "MyVoxel/Instance/Shape.h"
 
 namespace MyVoxel
 {
@@ -16,70 +16,69 @@ namespace Algorithm
 
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
 
-// 保存连续几何体直接切削体素体时的内部执行统计。
+// 保存Instance::Shape连续体直接执行TSDF差集切削时的内部统计。
 struct ShapeCutStatistics
 {
     ShapeCutStatistics();
 
     // 清空全部统计数据。
     void reset();
-
-    // 累加另一次连续几何切削统计。
+    // 累加另一次连续Shape切削统计。
     void accumulate(const ShapeCutStatistics& other);
 
-    std::uint64_t broadPhaseRootCandidateCount; // 几何包围盒覆盖范围内的已有工件根数量。
-    std::uint64_t processedRootCount; // 实际进入几何分类或切削的工件根数量。
-    std::uint64_t changedRootCount; // 材料实际发生变化的工件根数量。
-    std::uint64_t removedRootCount; // 被完整删除的工件根数量。
+    std::uint64_t broadPhaseRootCandidateCount; // Shape查询包围盒向外扩展B后覆盖范围内的已有工件Root数量。
+    std::uint64_t processedRootCount; // 实际建立独立切削任务的工件Root数量。
+    std::uint64_t changedRootCount; // TSDF实际发生变化的工件Root数量。
+    std::uint64_t removedRootCount; // 最终完全退化为缺失Root对应+B背景并被删除的Root数量。
 
-    std::uint64_t rootBoundsConstructionCount; // 通过VoxelGrid构造第0层根中心和半尺寸的次数。
-    std::uint64_t scalarFastClassificationCount; // 通过中心和半尺寸单独执行快速包围盒分类的次数。
-    std::uint64_t octantBatchClassificationCount; // 一次批量分类八个等尺寸子体素的次数。
-    std::uint64_t derivedChildBoundsCount; // 由父中心和半尺寸直接推导实际递归子体素边界的次数。
+    std::uint64_t rootBoundsConstructionCount; // 构造第0层Root中心和半尺寸的次数。
+    std::uint64_t scalarFastClassificationCount; // 使用工具中心SDF和Cell半对角线执行区间判定的次数。
+    std::uint64_t octantBatchClassificationCount; // 保留旧统计槽；当前TSDF切削不再使用二值Octant分类，因此始终为0。
+    std::uint64_t derivedChildBoundsCount; // 由父Cell直接推导子Cell中心和半尺寸的次数。
 
-    std::uint64_t visitedCellCount; // 实际访问的工件逻辑体素数量。
-    std::uint64_t emptySkippedCellCount; // 因工件体素为空而跳过的数量。
-    std::uint64_t classifiedCellCount; // 执行连续几何包围盒分类的次数。
-    std::uint64_t outsideCellCount; // 被分类为完全位于几何体外部的体素数量。
-    std::uint64_t insideCellCount; // 被分类为完全位于几何体内部的体素数量。
-    std::uint64_t intersectingCellCount; // 被分类为与几何边界相交的体素数量。
+    std::uint64_t visitedCellCount; // 实际访问的逻辑Cell数量。
+    std::uint64_t emptySkippedCellCount; // 工件当前终止Value已经为+B而直接跳过的Cell数量。
+    std::uint64_t classifiedCellCount; // 完成工具SDF区间判定的Cell数量。
+    std::uint64_t outsideCellCount; // 工具在整个Cell上至少位于+B之外、结果可证明不变的Cell数量。
+    std::uint64_t insideCellCount; // 工具在整个Cell上至少位于-B内部、结果可直接写为+B的Cell数量。
+    std::uint64_t intersectingCellCount; // 工具TSDF窄带覆盖、必须继续细分或显式采样的Cell数量。
 
-    std::uint64_t centerSampleCount; // 最高层相交体素执行中心采样的次数。
-    std::uint64_t centerRemovedCellCount; // 中心采样后被删除的最高层体素数量。
-    std::uint64_t removedBranchCount; // 被几何体完整覆盖并直接删除的细分分支数量。
+    std::uint64_t centerSampleCount; // 执行工具signed-distance中心采样的次数。
+    std::uint64_t centerRemovedCellCount; // 最高层样本从材料侧变为空侧的数量。
+    std::uint64_t removedBranchCount; // 工具深内部直接将已细分工件分支写为+B的次数。
 
-    std::uint64_t splitCount; // 为处理局部相交而创建普通细分节点的次数。
-    std::uint64_t maskLeafBuildCount; // 直接生成64位几何掩码的次数。
-    std::uint64_t maskLeafOperationCount; // 直接执行64位叶掩码差集的次数。
-    std::uint64_t maskLeafRemovedCellCount; // 64位叶掩码路径删除的最高层体素数量。
+    std::uint64_t splitCount; // 为保存局部差集结果而无损细分终止Tile的次数。
+    std::uint64_t maskLeafBuildCount; // 直接生成64个最高层TSDF差集样本的次数。
+    std::uint64_t maskLeafOperationCount; // 64样本LeafBlock实际发生Value变化的次数。
+    std::uint64_t maskLeafRemovedCellCount; // LeafBlock路径中从材料侧变为空侧的最高层样本数量。
 
-    std::uint64_t mergeAttemptCount; // 子节点处理后尝试折叠当前体素的次数。
-    std::uint64_t mergeSuccessCount; // 成功折叠为空或材料体素的次数。
+    std::uint64_t mergeAttemptCount; // Root切削完成后执行Value-aware prune的次数。
+    std::uint64_t mergeSuccessCount; // Value-aware prune实际改变压缩结构的Root数量。
 
-    double rootClassificationMilliseconds; // 收集并分类几何包围盒范围内已有根的墙钟耗时。
-    double rootPreparationMilliseconds; // 建立相交根独立结果树和任务记录的墙钟耗时。
-    double intersectingRootExecutionMilliseconds; // 并行执行全部相交根递归切削的墙钟耗时。
-    double intersectingRootCpuMilliseconds; // 各相交根递归切削任务耗时的累计值。
-    double commitMilliseconds; // 串行提交相交根结果和完整删除根的墙钟耗时。
+    double rootClassificationMilliseconds; // 收集Shape扩展窄带范围内已有Root的墙钟耗时。
+    double rootPreparationMilliseconds; // 建立独立Root结果树和脏区任务的墙钟耗时。
+    double intersectingRootExecutionMilliseconds; // 并行执行全部候选Root TSDF差集的墙钟耗时。
+    double intersectingRootCpuMilliseconds; // 各Root独立TSDF差集任务耗时累计值。
+    double commitMilliseconds; // 串行提交结果Root和删除+B背景Root的墙钟耗时。
 };
 
 #endif
 
-// 将一个连续几何实例直接从体素体中减去。
+// 将当前Instance::Shape连续体直接从VoxelShape TSDF中减去。
 //
-// 几何实例会转换到object的体素局部空间。
-// 算法只访问几何包围盒范围内已有的工件根树，不构造工具VoxelShape。
+// 工具实例空间放置由Shape自身的Instance_Object语义提供，查询空间使用object.transform()。
+// 差集统一使用dResult=max(dObject,-dTool)，结果保持object固定[-B,+B]截断范围。
+// ShapeQuery必须在object体素局部空间中支持精确signed distance；算法不会构造工具VoxelShape。
 class ShapeCutAlgorithm
 {
 public:
-    // 原地执行连续几何差集，返回object是否发生实际变化。
-    static bool apply(VoxelShape& object, const Geometry::ShapeInstance& tool, VoxelChangeSet* changes = nullptr);
+    // 原地执行VoxelShape-Shape连续TSDF差集，返回object距离场是否发生实际变化。
+    static bool apply(VoxelShape& object, const Shape& tool, VoxelChangeSet* changes = nullptr);
 
 #ifdef MYVOXEL_ENABLE_OPERATION_STATISTICS
 
-    // 原地执行连续几何差集并记录内部统计，返回object是否发生实际变化。
-    static bool apply(VoxelShape& object, const Geometry::ShapeInstance& tool,
-                      VoxelChangeSet* changes, ShapeCutStatistics& statistics);
+    // 原地执行VoxelShape-Shape连续TSDF差集并输出内部统计。
+    static bool apply(VoxelShape& object, const Shape& tool, VoxelChangeSet* changes, ShapeCutStatistics& statistics);
 
 #endif
 

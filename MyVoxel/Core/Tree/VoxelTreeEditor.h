@@ -4,105 +4,111 @@
 #include <cstdint>
 
 #include "MyVoxel/Core/Tree/VoxelChildStateMasks.h"
-
 #include "VoxelTree.h"
 
 namespace MyVoxel
 {
 
-// 在可写体素树中访问并修改逻辑体素。
+// 在可写体素树中访问并修改逻辑结构、终止Tile Value和显式TSDF距离。
 //
-// 编辑器及其子编辑器均为非拥有引用，体素树销毁后不得继续使用。
-// 修改祖先结构后，已经取得的兄弟或后代编辑器可能失效。
+// 不带backgroundDistance创建的编辑器可执行保持现有Value的结构操作以及直接setValue。
+// setEmpty、setMaterial、setChildrenState和二值Mask入口需要backgroundDistance以生成±B。
 class VoxelTreeEditor
 {
 public:
-    // 使用指定体素树创建根体素编辑器，并保证当前树独占节点池。
+    // 使用指定体素树创建编辑器，并保证当前树独占BlockPool。
     explicit VoxelTreeEditor(VoxelTree& tree);
+    // 使用指定截断背景距离创建场编辑器，并保证当前树独占BlockPool。
+    VoxelTreeEditor(VoxelTree& tree, float backgroundDistance);
 
     /// 体素状态
-    // 返回当前逻辑体素状态。
-    VoxelState state() const;
 
+    VoxelState state() const;
     bool isEmpty() const{return state() == VoxelState::Empty;}
     bool isMaterial() const{return state() == VoxelState::Material;}
     bool isSubdivided() const{return state() == VoxelState::Subdivided;}
     bool isTerminal() const{return state() != VoxelState::Subdivided;}
+    // 判断当前编辑器是否具有可解释±B和TSDF范围的backgroundDistance。
+    bool hasBackgroundDistance() const{return m_backgroundDistance > 0.0f;}
+    // 返回当前编辑器使用的截断背景距离。
+    float backgroundDistance() const;
 
     /// 子体素读取
 
-    // 一次返回当前逻辑体素八个直接子体素的状态掩码。
-    // Empty或Material体素不会为了读取而实际细分，而是返回八个继承当前状态的虚拟子体素。
+    // 一次返回当前逻辑体素八个直接子体素的结构状态掩码。
     VoxelChildStateMasks childStateMasks() const;
 
-    /// 体素修改
-    // 将当前逻辑体素设置为空，并释放其全部物理后代。
-    void setEmpty();
-    // 将当前逻辑体素设置为完全包含材料，并释放其全部物理后代。
-    void setMaterial();
-    // 将当前空或材料体素细分，返回是否实际创建了普通分支。
-    bool subdivide();
+    /// 结构和终止Value修改
 
-    // 将指定位置的直接子体素批量设置为空或材料，并正确释放原有物理后代。
-    // 当前体素为终止状态且存在实际变化时，会先细分为普通分支。
-    // 返回是否存在实际逻辑或存储变化。
+    // 将当前逻辑区域设置为+B空侧终止Tile，需要field-aware editor。
+    void setEmpty();
+    // 将当前逻辑区域设置为-B材料侧终止Tile，需要field-aware editor。
+    void setMaterial();
+    // 将当前逻辑区域设置为指定终止Tile Value并释放更细物理后代，零值视为Material。
+    bool setValue(float value);
+    // 将当前Empty或Material终止Tile细分为普通Node，八个直接子Tile继承原Value。
+    bool subdivide();
+    // 将指定直接子体素批量设置为+B空侧或-B材料侧终止Tile，需要field-aware editor。
     bool setChildrenState(std::uint8_t childMask, VoxelState state);
-    // 返回指定角点对应的直接逻辑子体素编辑器。
-    // 普通空或材料体素会自动细分；掩码叶块粗层体素可直接访问其八个细层体素。
+    // 返回指定角点对应的直接逻辑子体素编辑器；普通终止Tile会按需无损细分为Node。
     VoxelTreeEditor child(VoxelCorner corner);
 
-    /// 压缩材料修改    
-    bool canSetMaterialMask() const{return m_source == Source::NodeChild;}
-    // 使用指定64位掩码设置当前位置覆盖的后两层材料状态。
-    // 全空或全材料掩码自动折叠为终止体素，其余掩码使用压缩叶块保存。
-    // 当前编辑器必须对应普通节点块中的一个直接子体素。
+    /// MaskLeaf结构
+
+    // 判断当前位置是否能够被显式化为完整MaskLeaf。
+    bool canTouchLeaf() const;
+    // 将当前Empty或Material NodeChild无损显式化为MaskLeaf，64个距离统一继承当前Tile Value。
+    bool touchLeaf();
+    // 判断当前位置是否能够直接替换完整MaskLeaf数据。
+    bool canSetLeafBlock() const{return m_source == Source::NodeChild;}
+    // 使用指定64个截断距离替换当前位置；64个Value完全一致时直接保存为终止Tile。
+    bool setLeafBlock(const LeafBlock& block);
+    // 使用二值材料掩码生成±B距离并替换当前位置，需要field-aware editor。
     bool setMaterialMask(std::uint64_t materialMask);
+
+    /// 单距离修改
+
+    // 判断当前位置是否对应MaskLeaf中的实际距离样本。
+    bool canSetDistance() const{return m_source == Source::MaskLeafVoxel;}
+    // 返回当前位置实际距离样本。
+    float distance() const;
+    // 修改当前位置实际距离并同步MaskBlock；field-aware editor会同时检查[-B,+B]。
+    bool setDistance(float distance);
+
 private:
-    // 表示当前编辑器对应的逻辑位置。
     enum class Source : std::uint8_t
     {
         Root = 0, // 当前编辑器对应体素树根体素。
-        NodeChild = 1, // 当前编辑器对应普通节点块中的一个直接子体素。
-        MaskLeafGroup = 2, // 当前编辑器对应掩码叶块中的一个粗层体素。
-        MaskLeafVoxel = 3 // 当前编辑器对应掩码叶块中的一个细层体素。
+        NodeChild = 1, // 当前编辑器对应NodeBlock中的一个直接子体素。
+        MaskLeafGroup = 2, // 当前编辑器对应MaskLeaf中的一个粗层组。
+        MaskLeafVoxel = 3 // 当前编辑器对应MaskLeaf中的一个实际距离样本。
     };
 
 private:
-    // 创建普通节点块直接子体素编辑器。
-    VoxelTreeEditor(VoxelTree& tree, VoxelNodeBlock& parentBlock, VoxelCorner childCorner);
-    // 创建掩码叶块粗层体素编辑器。
-    VoxelTreeEditor(VoxelTree& tree, VoxelLeafBlock& leafBlock, VoxelCorner coarseCorner);
-    // 创建掩码叶块细层体素编辑器。
-    VoxelTreeEditor(VoxelTree& tree,
-                    VoxelLeafBlock& leafBlock,
-                    VoxelCorner coarseCorner,
-                    VoxelCorner fineCorner);
-    // 返回普通父节点记录的当前子体素存储状态。
+    VoxelTreeEditor(VoxelTree& tree, NodeBlock& parentBlock, VoxelCorner childCorner, float backgroundDistance);
+    VoxelTreeEditor(VoxelTree& tree, MaskBlock& maskBlock, LeafBlock& leafBlock, VoxelCorner coarseCorner, float backgroundDistance);
+    VoxelTreeEditor(VoxelTree& tree, MaskBlock& maskBlock, LeafBlock& leafBlock, VoxelCorner coarseCorner, VoxelCorner fineCorner, float backgroundDistance);
+
     VoxelNodeState nodeChildState() const;
-    // 返回当前普通分支使用的可写节点块。
-    VoxelNodeBlock& currentNodeBlock();
-    // 返回当前普通分支使用的只读节点块。
-    const VoxelNodeBlock& currentNodeBlock() const;
-    // 返回当前掩码叶逻辑体素使用的可写叶块。
-    VoxelLeafBlock& currentLeafBlock();
-    // 返回当前掩码叶逻辑体素使用的只读叶块。
-    const VoxelLeafBlock& currentLeafBlock() const;
-    // 将当前逻辑体素设置为Empty或Material。
-    void setTerminal(VoxelState state);
-    // 批量修改普通节点块中的直接子体素状态。
-    bool setNodeChildren(VoxelNodeBlock& block, std::uint8_t childMask, VoxelState state);
-    // 为普通父节点分配八槽组。
-    void ensureParentGroup();
-    // 当前普通父节点不再包含物理子节点时回收其八槽组。
-    void releaseUnusedParentGroup();
+    NodeBlock& currentNodeBlock();
+    const NodeBlock& currentNodeBlock() const;
+    LeafData currentLeafData();
+    ConstLeafData currentLeafData() const;
+    float terminalDistance(VoxelState state) const;
+    void requireBackgroundDistance() const;
+    bool setNodeChildren(NodeBlock& block, std::uint8_t childMask, float value);
+    bool setLeafGroups(std::uint8_t groupMask, float value);
+    bool setLeafGroupChildren(std::uint8_t childMask, float value);
 
 private:
-    VoxelTree* m_tree; // 当前编辑器所属的可写体素树。
-    VoxelNodeBlock* m_parentBlock; // NodeChild位置对应的普通父节点块。
-    VoxelLeafBlock* m_leafBlock;   // 掩码叶逻辑位置对应的物理叶块。
-    VoxelCorner m_childCorner;  // 父节点中当前角点的位置
-    VoxelCorner m_coarseCorner; // 掩码叶块中的粗层角点。
-    Source m_source;            // 当前编辑器对应的逻辑位置类型。
+    VoxelTree* m_tree; // 当前所属可写体素树。
+    NodeBlock* m_parentBlock; // NodeChild对应父节点。
+    MaskBlock* m_maskBlock; // 当前MaskLeaf材料二值掩码。
+    LeafBlock* m_leafBlock; // 当前MaskLeaf距离块。
+    VoxelCorner m_childCorner; // NodeChild或细层样本角点。
+    VoxelCorner m_coarseCorner; // MaskLeaf粗层角点。
+    float m_backgroundDistance; // 当前场编辑器使用的截断背景距离，0表示未提供。
+    Source m_source; // 当前逻辑位置来源。
 };
 
 }
